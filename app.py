@@ -14,7 +14,6 @@ def extract_exact_pea_bill(file_obj):
         "ชื่อไฟล์": file_obj.name,
         "C": 0.0, "D": 0.0, "E": 0.0, "F": 0.0, "G": 0.0, 
         "I": 0.0, "J": 0.0, "K": 0.0, "L": 0.0, "O": 0.0, "P": 0.0, "Q": 0.0
-        "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
     # 1. Demand Charge (C, D, E, F, G)
