@@ -8,7 +8,7 @@ from io import BytesIO
 st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
 
 st.title("⚡ ระบบบันทึกข้อมูลและเจนรีพอร์ตค่าไฟฟ้าอัตโนมัติ")
-st.write("เวอร์ชันซ่อมแซมใหญ่: ดึงข้อมูลด้วยระบบ Pattern-Context Matching (เสถียรสูงสุดตามบิลจริง ปตท.)")
+st.write("เวอร์ชันทำงานร่วมกับบิลจริง: ดึงข้อมูลด้วยดัชนีตัวเลขระดับโครงสร้าง (ไม่เจอกลุ่มตัวเลขเป็น 0)")
 
 st.divider()
 
@@ -20,56 +20,57 @@ selected_month = st.sidebar.selectbox("เลือกเดือน:", months_
 selected_year = st.sidebar.number_input("เลือกปี (ค.ศ.):", min_value=2020, max_value=2040, value=current_year)
 
 def clean_num(val_str):
-    if not val_str: return 0.0
+    if not val_str: return ""
     return float(val_str.replace(",", "").strip())
 
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
-        # ดึงข้อความมารวมกันเป็นก้อนเดียวเพื่อป้องกันปัญหาข้อความถูกตัดสลับบรรทัด
-        full_text = "".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+        text = "".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+        text_lines = text.split('\n')
                 
-    # ตัวแปรผลลัพธ์ที่จะจัดลงช่อง C ถึง Q ปล่อยเป็นค่าว่างไว้รอเติม
+    # ตั้งค่าตัวแปรผลลัพธ์ C ถึง Q ให้เป็นค่าว่างรอรับข้อมูลจริง
     col_c = col_d = col_e = col_f = col_g = col_h = col_i = col_j = col_k = col_l = col_m = col_n = col_o = col_p = col_q = ""
     
-    # 1. ดึงกลุ่มพลังไฟฟ้าสูงสุด Demand kW (C, D, E)
-    peak_kw_match = re.search(r"Peak\s+([0-9,]+\.[0-9]{2})\s+กว\.", full_text)
-    if peak_kw_match: col_c = clean_num(peak_kw_match.group(1))
+    for line in text_lines:
+        line_clean = line.strip()
+        # ค้นหาตัวเลขทั้งหมดที่มีการใส่เครื่องหมายจุลภาคหรือทศนิยม เช่น 3,620.00 หรือ 144,000.00
+        all_numbers = re.findall(r"([0-9,]+\.[0-9]{2,4})", line_clean)
         
-    part_kw_match = re.search(r"Partial\s+Peak\s+([0-9,]+\.[0-9]{2})\s+กว\.", full_text)
-    if part_kw_match: col_d = clean_num(part_kw_match.group(1))
-        
-    off_kw_match = re.search(r"Off\s+Peak\s+([0-9,]+\.[0-9]{2})\s+กว\.", full_text)
-    if off_kw_match: col_e = clean_num(off_kw_match.group(1))
+        if not all_numbers:
+            continue
+            
+        # 1. จัดการกลุ่ม Peak
+        if "Peak" in line_clean and "Partial" not in line_clean and "Off" not in line_clean:
+            # เช็กว่าเป็นบรรทัดคิดเงินด้านบน (มีอัตรา 285.0500 อยู่ด้วย)
+            if "285.05" in line_clean or len(all_numbers) >= 3:
+                col_c = clean_num(all_numbers[0])  # ค่า Peak kW -> 3,620.00 (คอลัมน์ C)
+                col_f = clean_num(all_numbers[-1]) # เงินรวม Peak -> 1,031,881.00 (คอลัมน์ F)
+            else:
+                # ถ้าไม่มีอัตราแปลว่าเป็นบรรทัดหน่วยด้านล่าง
+                col_i = clean_num(all_numbers[0])  # หน่วย Peak -> 144,000.00 (คอลัมน์ I)
 
-    # 2. ดึงจำนวนเงินค่าความต้องการพลังงาน Demand Charge (F, G)
-    # ค้นหาตัวเลขที่อยู่ถัดจากอัตราคงที่ 285.0500 และ 58.8800
-    peak_money_match = re.search(r"285\.0500\s+([0-9,]+\.[0-9]{2})", full_text)
-    if peak_money_match: col_f = clean_num(peak_money_match.group(1))
-        
-    part_money_match = re.search(r"58\.8800\s+([0-9,]+\.[0-9]{2})", full_text)
-    if part_money_match: col_g = clean_num(part_money_match.group(1))
+        # 2. จัดการกลุ่ม Partial Peak
+        elif "Partial" in line_clean:
+            if "58.88" in line_clean or len(all_numbers) >= 3:
+                col_d = clean_num(all_numbers[0])  # ค่า PP kW -> 5,260.00 (คอลัมน์ D)
+                col_g = clean_num(all_numbers[-1]) # เงินรวม PP -> 96,563.20 (คอลัมน์ G)
+            else:
+                col_j = clean_num(all_numbers[0])  # หน่วย PP -> 651,000.00 (คอลัมน์ J)
 
-    # 3. ดึงกลุ่มหน่วยพลังงานไฟฟ้าด้านล่างตารางสถิติ (I, J, K, L)
-    # ค้นหาตัวเลขในแถวประวัติตารางหน่วยสะสมท้ายบิล
-    # ค้นหากลุ่มตัวเลข 440,200.00 และ 3,887,297.92 ของ Off Peak
-    off_energy_match = re.search(r"Off\s+Peak\s+[^\n]*?([0-9,]+\.[0-9]{2})\s+([0-9,]+\.[0-9]{2})", full_text)
-    if off_energy_match:
-        col_k = clean_num(off_energy_match.group(1)) # หน่วย Off Peak (K)
-        col_l = clean_num(off_energy_match.group(2)) # เงินพลังงาน Off Peak (L)
+        # 3. จัดการกลุ่ม Off Peak
+        elif "Off" in line_clean:
+            # เช็กว่าเป็นบรรทัดความต้องการพลังงานด้านบน (มีหน่วย กว. หรือตัวเลขชุดเดียว)
+            if "กว" in line_clean or len(all_numbers) == 1:
+                col_e = clean_num(all_numbers[0])  # ค่า Off Peak kW -> 5,240.00 (คอลัมน์ E)
+            else:
+                # เป็นบรรทัดตารางหน่วยด้านล่างที่มีตัวเลขเรียงกัน 2 ชุด
+                if len(all_numbers) >= 2:
+                    col_k = clean_num(all_numbers[0])  # หน่วย Off Peak -> 440,200.00 (คอลัมน์ K)
+                    col_l = clean_num(all_numbers[1])  # เงินพลังงาน Off Peak -> 3,887,297.92 (คอลัมน์ L)
 
-    # ค้นหาหน่วย Peak และ Partial Peak จากกลุ่มพลังงานไฟฟ้าหลัก
-    peak_energy_match = re.search(r"Peak\s+(?:(?!\bกว\b).)*?([0-9,]+\.[0-9]{2})", full_text | re.DOTALL)
-    # เจาะจงดึงค่าหน่วยใช้ไปตัวจริงในบิล (จับคู่จากเลข 144,000 และ 651,000)
-    all_units = re.findall(r"([0-9,]+\.[0-9]{2})", full_text)
-    for u in all_units:
-        if "144,000" in u: col_i = clean_num(u)
-        if "651,000" in u: col_j = clean_num(u)
-        if "440,200" in u: col_k = clean_num(u)
-        if "3,887,297" in u: col_l = clean_num(u)
-
-    # 4. ดึงเงินค่า Power Factor (P)
-    pf_money_match = re.search(r"(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s+Factor)[^\n]*?([0-9,]+\.[0-9]{2})", full_text)
-    if pf_money_match: col_p = clean_num(pf_money_match.group(1))
+        # 4. จัดการเงินค่า Power Factor ท้ายบิล
+        elif "เพาเวอร์" in line_clean or "แฟคเตอร์" in line_clean or "Factor" in line_clean:
+            col_p = clean_num(all_numbers[0])      # เงินค่า Power Factor -> 584,249.40 (คอลัมน์ P)
 
     return {
         "ชื่อไฟล์": file_obj.name,
@@ -80,22 +81,22 @@ def extract_exact_pea_bill(file_obj):
         "P": col_p, "Q": col_q
     }
 
-# โครงสร้างหน้าตา UI บนเว็บบราวเซอร์
+# หน้าจอการทำงานหลักของเว็บแอป Streamlit
 st.subheader("📂 1. อัปโหลดไฟล์บิลค่าไฟฟ้า (PDF)")
 uploaded_files = st.file_uploader("ลากไฟล์บิล PDF มาวางที่นี่", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files:
     all_data = []
     for f in uploaded_files:
-        with st.spinner(f"กำลังประมวลผลด้วยโมเดลวิเคราะห์พิกัด Regex {f.name}..."):
+        with st.spinner(f"กำลังสกัดข้อมูลเข้าตารางหลัก {f.name}..."):
             try:
                 all_data.append(extract_exact_pea_bill(f))
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดกับไฟล์ {f.name}: {e}")
                 
     if all_data:
-        st.success(f"⚡ สกัดตัวเลขลงล็อกพิกัดตารางสมบูรณ์แล้ว!")
-        st.subheader("📊 2. ตารางตรวจสอบข้อมูล (พร้อมก๊อปปี้แนวนอนลงช่อง C ถึง Q)")
+        st.success(f"⚡ ประมวลผลและกระจายตัวเลขลงคอลัมน์สำเร็จ!")
+        st.subheader("📊 2. ตารางพรีวิวก่อนคัดลอก (เรียงช่อง C ถึง Q ตามแบบโครงสร้างบัญชี)")
         
         df = pd.DataFrame(all_data)
         edited_df = st.data_editor(df, use_container_width=True, num_rows="dynamic")
@@ -106,13 +107,5 @@ if uploaded_files:
         def to_excel(input_df):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                input_df.to_excel(writer, index=False, sheet_name='Data_Paste_Ready')
-            return output.getvalue()
-        
-        excel_data = to_excel(edited_df)
-        st.download_button(
-            label="🟢 ดาวน์โหลดไฟล์ Excel สำหรับลากคลุม Copy แปะเข้าหน้าหลัก",
-            data=excel_data,
-            file_name=f"PEA_Final_Regex_Fixed_{selected_month}_{selected_year}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+                input_df.to_excel(writer, index=False, sheet_name='PEA_Final_Ready')
+            return output.
