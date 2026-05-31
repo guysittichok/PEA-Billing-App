@@ -65,14 +65,22 @@ if uploaded_files:
     df = pd.DataFrame(data)
     st.data_editor(df, use_container_width=True)
 
+   # ... (ส่วนของการวนลูป)
     if template_file and st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
         try:
             wb = openpyxl.load_workbook(template_file)
             ws = wb.active 
             
             def write_number(ws, cell_pos, value):
-                try: ws[cell_pos] = float(value); ws[cell_pos].number_format = '0.00'
-                except: ws[cell_pos] = 0
+                try:
+                    val = float(str(value).replace(',', ''))
+                    if val == 0:
+                        ws[cell_pos] = "-"
+                    else:
+                        ws[cell_pos] = val
+                        ws[cell_pos].number_format = '0.00'
+                except:
+                    ws[cell_pos] = "-"
 
             for row_idx in range(20, ws.max_row + 1):
                 excel_key = str(ws[f'A{row_idx}'].value).strip()
