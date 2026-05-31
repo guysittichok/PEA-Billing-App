@@ -63,61 +63,61 @@ template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้
 
 if uploaded_files:
     data = [extract_exact_pea_bill(f) for f in uploaded_files]
-    df = pd.DataFrame(data)
+    all_cols = ["ชื่อไฟล์", "C", "D", "E", "F", "G", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]
+    df = pd.DataFrame(data, columns=all_cols)
     st.data_editor(df, use_container_width=True)
 
-   # ... (ส่วนของการวนลูป)
     if template_file and st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
         try:
             wb = openpyxl.load_workbook(template_file)
             ws = wb.active 
-            
-           # 1. ฟังก์ชัน write_number (วางไว้นอกลูป)
-def write_number(ws, cell_pos, value):
-    val_str = str(value).strip()
-    # ตรวจสอบค่าว่างหรือ 0
-    if val_str in ["0", "0.0", "None", ""]:
-        ws[cell_pos] = "-"
-    else:
-        try:
-            val = float(val_str.replace(',', ''))
-            if val == 0:
-                ws[cell_pos] = "-"
-            else:
-                ws[cell_pos] = val
-                ws[cell_pos].number_format = '0.00'
-        except:
-            ws[cell_pos] = "-"
 
-# 2. ส่วนการวนลูป (ต้องอยู่นอกฟังก์ชัน)
-for row_idx in range(20, ws.max_row + 1):
-    excel_key = str(ws[f'A{row_idx}'].value).strip()
-    if excel_key in ["None", ""]: continue
-    
-    match_row = df[df['ชื่อไฟล์'].apply(lambda x: excel_key in str(x))]
-    
-    if not match_row.empty:
-        row = match_row.iloc[0]
-        # เรียกใช้ฟังก์ชันทีละเซลล์
-        write_number(ws, f'C{row_idx}', row['C'])
-        write_number(ws, f'D{row_idx}', row['D'])
-        write_number(ws, f'E{row_idx}', row['E'])
-        write_number(ws, f'F{row_idx}', row['F'])
-        write_number(ws, f'G{row_idx}', row['G'])
-        write_number(ws, f'I{row_idx}', row['I'])
-        write_number(ws, f'J{row_idx}', row['J'])
-        write_number(ws, f'K{row_idx}', row['K'])
-        write_number(ws, f'L{row_idx}', row['L'])
-        write_number(ws, f'M{row_idx}', row['M'])
-        write_number(ws, f'N{row_idx}', row['N'])
-        write_number(ws, f'O{row_idx}', row['O'])
-        write_number(ws, f'P{row_idx}', row['P'])
-        write_number(ws, f'Q{row_idx}', row['Q'])
+            # 1. ฟังก์ชัน write_number (กำหนดไว้ในนี้เพื่อให้เรียกใช้ได้ง่าย)
+            def write_number(ws, cell_pos, value):
+                val_str = str(value).strip()
+                if val_str in ["0", "0.0", "None", ""]:
+                    ws[cell_pos] = "-"
+                else:
+                    try:
+                        val = float(val_str.replace(',', ''))
+                        if val == 0:
+                            ws[cell_pos] = "-"
+                        else:
+                            ws[cell_pos] = val
+                            ws[cell_pos].number_format = '0.00'
+                    except:
+                        ws[cell_pos] = "-"
+
+            # 2. ส่วนการวนลูปกรอกข้อมูล
+            for row_idx in range(20, ws.max_row + 1):
+                excel_key = str(ws[f'A{row_idx}'].value).strip()
+                if excel_key in ["None", ""]: continue
+                
+                match_row = df[df['ชื่อไฟล์'].apply(lambda x: excel_key in str(x))]
+                
+                if not match_row.empty:
+                    row = match_row.iloc[0]
+                    write_number(ws, f'C{row_idx}', row['C'])
+                    write_number(ws, f'D{row_idx}', row['D'])
+                    write_number(ws, f'E{row_idx}', row['E'])
+                    write_number(ws, f'F{row_idx}', row['F'])
+                    write_number(ws, f'G{row_idx}', row['G'])
+                    write_number(ws, f'I{row_idx}', row['I'])
+                    write_number(ws, f'J{row_idx}', row['J'])
+                    write_number(ws, f'K{row_idx}', row['K'])
+                    write_number(ws, f'L{row_idx}', row['L'])
+                    write_number(ws, f'M{row_idx}', row['M'])
+                    write_number(ws, f'N{row_idx}', row['N'])
+                    write_number(ws, f'O{row_idx}', row['O'])
+                    write_number(ws, f'P{row_idx}', row['P'])
+                    write_number(ws, f'Q{row_idx}', row['Q'])
             
+            # 3. เซฟและสร้างปุ่มดาวน์โหลด
             output = BytesIO()
             wb.save(output)
             output.seek(0)
             st.success("กรอกข้อมูลครบทุกช่องแล้ว!")
             st.download_button("📥 ดาวน์โหลด Excel", output, "Updated_PEA_Bill.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาด: {e}")
