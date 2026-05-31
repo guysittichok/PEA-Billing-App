@@ -95,6 +95,23 @@ if template_file and not df.empty:
         output = BytesIO()
         wb.save(output)
         output.seek(0)
+
+        # ก่อนจะเขียนข้อมูล ให้ลองเช็คดูก่อนว่ามันเจอข้อมูลไหม
+        if not data:
+            st.error("ไม่พบข้อมูลจากการสกัด PDF กรุณาตรวจสอบ Regex")
+        else:
+            # ใช้ openpyxl เขียนข้อมูล
+            for i, row in df.iterrows():
+                row_idx = i + 2
+                # ลองเขียนค่าแบบระบุชื่อคอลัมน์ให้ตรงกับที่ดึงมา
+                # เช่น ถ้าใน dictionary ของคุณมี key ว่า "C", "D"
+                ws[f'E{row_idx}'] = row.get("E", 0) 
+                ws[f'F{row_idx}'] = row.get("F", 0)
+                
+            # บังคับให้เซฟไฟล์ที่แก้ไขแล้วจริงๆ
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
         
         # 4. ปุ่มดาวน์โหลด
         st.download_button(
