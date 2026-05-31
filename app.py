@@ -4,71 +4,53 @@ import re
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
+st.set_page_config(layout="wide")
+st.title("⚡ ระบบสกัดข้อมูลบิล PEA (รองรับทุกประเภทบิล)")
 
-st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA (สมบูรณ์ 100%)")
-
-# ฟังก์ชันดึงข้อมูล (คง Logic ที่คุณชอบไว้)
-def extract_exact_pea_bill(file_obj):
+def extract_pea_data(file_obj):
     with pdfplumber.open(file_obj) as pdf:
-        text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+        # ดึงข้อความออกมาเป็นก้อนเดียว
+        full_text = "\n".join([p.extract_text() for p in pdf.pages if p.extract_text()])
 
-    result = {"ชื่อไฟล์": file_obj.name, "C": "", "D": "", "E": "", "F": "", "G": "", "H": "", "I": "", "J": "", "K": "", "L": "", "M": "", "N": "", "O": "", "P": "", "Q": ""}
+    # สร้าง Dictionary เปล่า
+    data = {k: "" for k in ["C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]}
+    data["ชื่อไฟล์"] = file_obj.name
 
-    # 1. Demand (C, D, E, F, G)
-    peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-    if peak:
-        result["C"] = float(peak.group(1).replace(",", "")); result["F"] = float(peak.group(2).replace(",", ""))
-    pp = re.search(r'Partial\s+Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-    if pp:
-        result["D"] = float(pp.group(1).replace(",", "")); result["G"] = float(pp.group(2).replace(",", ""))
-    op = re.search(r'Off\s+Peak\s+([\d,]+\.\d+)\s+กว', text, re.I)
-    if op:
-        result["E"] = float(op.group(1).replace(",", ""))
+    # Helper function: ค้นหาตัวเลขที่อยู่ใกล้คำหลักที่สุด
+    def find_val(anchor, line_text):
+        # ค้นหาบรรทัดที่มี Anchor อยู่
+        for line in line_text.split('\n'):
+            if anchor in line:
+                nums = re.findall(r"[\d,]+\.\d+", line)
+                return float(nums[-1].replace(",", "")) if nums else ""
+        return ""
 
-    # 2. Energy (I, J, K) - Logic ที่คุณยืนยันว่าเลขเกือบถูกแล้ว
-    for line in text.split('\n'):
-        line_clean = line.strip()
-        nums = re.findall(r"([\d,]+\.\d+)", line_clean)
-        if not nums: continue
-        if "พลังงานไฟฟ้า" in line_clean and "P" in line_clean and "PP" not in line_clean:
-            result["I"] = float(nums[-1].replace(",", ""))
-        elif "PP" in line_clean:
-            result["J"] = float(nums[-1].replace(",", ""))
-        elif "OP" in line_clean:
-            result["K"] = float(nums[-1].replace(",", ""))
-
-    # 3. อื่นๆ
-    energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
-    if energy:
-        result["O"] = float(energy.group(1).replace(",", "")); result["L"] = float(energy.group(2).replace(",", ""))
+    # ดึงข้อมูล Demand (C, D, E) และ เงิน (F, G)
+    # ใช้การค้นหาแบบอิสระ ไม่ยึดติดรูปแบบบรรทัด
+    data["C"] = find_val("Peak", full_text) if "Peak" in full_text else ""
+    data["D"] = find_val("Partial Peak", full_text) if "Partial Peak" in full_text else ""
+    data["E"] = find_val("Off Peak", full_text) if "Off Peak" in full_text else ""
     
-    # ดึงค่าที่เหลือ
-    result["M"] = float(re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I).group(1).replace(",", "")) if re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I) else ""
-    result["N"] = float(re.search(r'ค่าบริการรายเดือน.*?([\d,]+\.\d+)', text, re.I).group(1).replace(",", "")) if re.search(r'ค่าบริการรายเดือน.*?([\d,]+\.\d+)', text, re.I) else ""
-    result["P"] = float(re.search(r'(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s*Factor).*?([\d,]+\.\d+)', text, re.I).group(1).replace(",", "")) if re.search(r'(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s*Factor).*?([\d,]+\.\d+)', text, re.I) else ""
-    result["Q"] = float(re.search(r'รวมเงินค่าไฟฟ้า\s*\(Sub\s*Total\)\s*([\d,]+\.\d+)', text, re.I).group(1).replace(",", "")) if re.search(r'รวมเงินค่าไฟฟ้า\s*\(Sub\s*Total\)\s*([\d,]+\.\d+)', text, re.I) else ""
+    # ดึงเงินค่าไฟฟ้าฐาน (L) - ใช้คำค้นหาที่แน่นอน
+    data["L"] = find_val("เงินค่าไฟฟ้าฐาน", full_text)
+    
+    # ดึง Ft และ Power Factor
+    data["M"] = find_val("ค่า Ft", full_text)
+    data["P"] = find_val("คาเพาเวอร์แฟคเตอร", full_text)
+    data["Q"] = find_val("รวมเงินค่าไฟฟ้า (Sub Total)", full_text)
 
-    return result
+    return data
 
-# --- UI ส่วนแสดงผล ---
-uploaded_files = st.file_uploader("อัปโหลดไฟล์บิล PDF", type=["pdf"], accept_multiple_files=True)
-
+# หน้าจอหลัก
+uploaded_files = st.file_uploader("อัปโหลดไฟล์บิล PDF", accept_multiple_files=True)
 if uploaded_files:
-    data = []
-    for f in uploaded_files:
-        with st.spinner(f"กำลังประมวลผล {f.name}..."):
-            data.append(extract_exact_pea_bill(f))
+    results = [extract_pea_data(f) for f in uploaded_files]
+    df = pd.DataFrame(results)
     
-    df = pd.DataFrame(data)
-    st.success("ประมวลผลข้อมูลเรียบร้อย!")
-    
-    # แสดงตารางให้แก้ไขได้
+    st.write("### ตารางข้อมูลที่สกัดได้")
     edited_df = st.data_editor(df, use_container_width=True)
     
-    # ปุ่มดาวน์โหลด (อยู่นอกลูป เพื่อไม่ให้ UI หาย)
+    # ปุ่มดาวน์โหลด
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        edited_df.to_excel(writer, index=False)
-    
-    st.download_button("🟢 ดาวน์โหลด Excel", data=output.getvalue(), file_name="PEA_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    edited_df.to_excel(output, index=False)
+    st.download_button("🟢 ดาวน์โหลด Excel", data=output.getvalue(), file_name="PEA_Data.xlsx")
