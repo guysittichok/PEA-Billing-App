@@ -77,35 +77,45 @@ st.markdown("---")
 st.subheader("📥 ส่งออกไปยังไฟล์ Excel ต้นแบบ")
 template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้นแบบ (.xlsx)", type=["xlsx"])
 
-if st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
-    # 1. โหลดไฟล์ Excel ต้นแบบ
-    wb = openpyxl.load_workbook(template_file)
-    ws = wb.active 
-    
-    # สมมติว่า ชื่อไฟล์บิลของคุณอยู่ที่คอลัมน์ A (แถวที่ 2 เป็นต้นไป)
-    # ให้ปรับ 'A' เป็นคอลัมน์ที่เก็บชื่อไฟล์จริงๆ ใน Excel ของคุณ
-    for row_idx in range(2, ws.max_row + 1):
-        excel_bill_no = ws[f'A{row_idx}'].value
-        
-        # ค้นหาข้อมูลใน DataFrame (df) ที่ชื่อตรงกับใน Excel
-        match_row = df[df['ชื่อไฟล์'] == excel_bill_no]
-        
-        if not match_row.empty:
-            # ถ้าเจอข้อมูลที่ตรงกัน ให้กรอกลงไป
-            # แก้ไขชื่อคอลัมน์ 'E', 'F' ให้ตรงกับข้อมูลที่สกัดได้
-            ws[f'E{row_idx}'] = match_row.iloc[0]['E']
-            ws[f'F{row_idx}'] = match_row.iloc[0]['F']
-            ws[f'I{row_idx}'] = match_row.iloc[0]['I']
-            # เพิ่มคอลัมน์อื่นๆ ตามต้องการที่นี่...
+if uploaded_files and template_file:
+    if st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
+        try:
+            # 1. โหลดไฟล์ Excel ต้นแบบ
+            wb = openpyxl.load_workbook(template_file)
+            ws = wb.active 
+            
+            # 2. เริ่มวนลูปค้นหาและกรอกข้อมูล
+            # เราจะวนลูปทุกแถวใน Excel ตั้งแต่แถวที่ 2 ถึงแถวสุดท้าย
+            for row_idx in range(2, ws.max_row + 1):
+                # ดึงชื่อไฟล์/รหัสจากคอลัมน์ A (ปรับ A เป็นคอลัมน์อื่นได้ถ้าจำเป็น)
+                excel_key = str(ws[f'A{row_idx}'].value)
+                
+                if excel_key == "None": continue
 
-    # 2. เซฟและเตรียมดาวน์โหลด
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-    
-    st.download_button(
-        label="ดาวน์โหลดไฟล์ Excel ผลลัพธ์",
-        data=output,
-        file_name="PEA_Result_Auto.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+                # ค้นหาใน df ว่ามีแถวไหนที่ชื่อไฟล์มีคำว่า excel_key อยู่บ้าง
+                # วิธีนี้ช่วยแก้ปัญหาเรื่อง .pdf หรือชื่อที่ยาวไม่เท่ากัน
+                match_row = df[df['ชื่อไฟล์'].apply(lambda x: excel_key in str(x))]
+                
+                if not match_row.empty:
+                    # ถ้าเจอข้อมูล ให้กรอกลงไปในคอลัมน์ที่กำหนด (แก้ E, F, I เป็นคอลัมน์ที่ต้องการ)
+                    # ใช้ .iloc[0] เพื่อเอาค่าแถวแรกที่เจอ
+                    ws[f'E{row_idx}'] = match_row.iloc[0]['E']
+                    ws[f'F{row_idx}'] = match_row.iloc[0]['F']
+                    ws[f'I{row_idx}'] = match_row.iloc[0]['I']
+                    ws[f'L{row_idx}'] = match_row.iloc[0]['L']
+                    ws[f'P{row_idx}'] = match_row.iloc[0]['P']
+            
+            # 3. เตรียมไฟล์สำหรับดาวน์โหลด
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+            
+            st.success("กรอกข้อมูลเรียบร้อยแล้ว!")
+            st.download_button(
+                label="📥 ดาวน์โหลดไฟล์ที่เสร็จแล้ว",
+                data=output,
+                file_name="Updated_PEA_Bill.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except Exception as e:
+            st.error(f"เกิดข้อผิดพลาด: {e}")
