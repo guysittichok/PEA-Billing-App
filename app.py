@@ -51,8 +51,15 @@ def extract_exact_pea_bill(file_obj):
     pf = re.search(r'(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s*Factor).*?([\d,]+\.\d+)', text, re.I)
     if pf: result["P"] = float(pf.group(1).replace(",", ""))
     
-    total = re.search(r'รวมเงินค่าไฟฟ้า.*?\s+([\d,]+\.\d+)', text, re.I)
-    if total: result["Q"] = float(total.group(1).replace(",", ""))
+    total_match = re.search(r'รวมเงินค่าไฟฟ้าเดือนปัจจุบัน.*?([\d,]+\.\d+)', text, re.I)
+    if total_match:
+        result["Q"] = float(total_match.group(1).replace(",", ""))
+    else:
+        # ถ้าหาบรรทัด "เดือนปัจจุบัน" ไม่เจอ ให้ลองใช้ตัวที่อยู่อันดับท้ายๆ ของไฟล์
+        # บิล PEA มักจะวางยอดรวมสุทธิไว้ล่างสุด
+        totals = re.findall(r'รวมเงินค่าไฟฟ้า.*?([\d,]+\.\d+)', text, re.I)
+        if totals:
+            result["Q"] = float(totals[-1].replace(",", ""))
 
     return result
 
