@@ -102,7 +102,7 @@ if uploaded_files:
                     write_number(ws, f'E{row_idx}', row['E'])
                     write_number(ws, f'F{row_idx}', row['F'])
                     write_number(ws, f'G{row_idx}', row['G'])
-                    write_number(ws, f'G{row_idx}', row['H'])
+                    write_number(ws, f'H{row_idx}', row['H'])
                     write_number(ws, f'I{row_idx}', row['I'])
                     write_number(ws, f'J{row_idx}', row['J'])
                     write_number(ws, f'K{row_idx}', row['K'])
