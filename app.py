@@ -6,7 +6,7 @@ from io import BytesIO
 import openpyxl
 
 st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
-st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA")
+st.title("PEA Bill Extraction System")
 
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
