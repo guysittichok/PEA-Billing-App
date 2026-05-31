@@ -72,35 +72,38 @@ if uploaded_files:
             wb = openpyxl.load_workbook(template_file)
             ws = wb.active 
             
-            def write_number(ws, cell_pos, value):
-                # ตรวจสอบค่าว่าง, None, หรือ String ว่าง
-                if value is None or str(value).strip() == "" or str(value).strip().lower() == "none":
-                    ws[cell_pos] = "-"
-                else:
-                    try:
-                        val = float(str(value).replace(',', ''))
-                        if val == 0:
-                            ws[cell_pos] = "-"
-                        else:
-                            ws[cell_pos] = val
-                            ws[cell_pos].number_format = '0.00'
-                    except:
-                        # ถ้าเป็นอย่างอื่นที่แปลเป็นตัวเลขไม่ได้ ให้ใส่ -
-                        ws[cell_pos] = "-"
-
+           def write_number(ws, cell_pos, value):
+    # ตรวจสอบค่าก่อน ถ้าเป็น None หรือ 0 ให้ใส่เป็น "-"
+    # ใช้ str(value) เพื่อกันกรณีข้อมูลเป็นรูปแบบอื่น
+    val_str = str(value).strip()
+    
+    if val_str == "0" or val_str == "0.0" or val_str == "None" or val_str == "":
+        ws[cell_pos] = "-"
+    else:
+        try:
+            val = float(val_str.replace(',', ''))
+            if val == 0:
+                ws[cell_pos] = "-"
+            else:
+                ws[cell_pos] = val
+                ws[cell_pos].number_format = '0.00'
+        except:
+            ws[cell_pos] = "-"
             for row_idx in range(20, ws.max_row + 1):
                 excel_key = str(ws[f'A{row_idx}'].value).strip()
                 if excel_key == "None" or excel_key == "": continue
                 match_row = df[df['ชื่อไฟล์'].apply(lambda x: excel_key in str(x))]
                 
                 if not match_row.empty:
-                    row = match_row.iloc[0]
-                    write_number(ws, f'C{row_idx}', row['C']); write_number(ws, f'D{row_idx}', row['D'])
-                    write_number(ws, f'E{row_idx}', row['E']); write_number(ws, f'F{row_idx}', row['F'])
-                    write_number(ws, f'G{row_idx}', row['G']); write_number(ws, f'I{row_idx}', row['I'])
-                    write_number(ws, f'J{row_idx}', row['J']); write_number(ws, f'K{row_idx}', row['K'])
-                    write_number(ws, f'L{row_idx}', row['L']); write_number(ws, f'O{row_idx}', row['O'])
-                    write_number(ws, f'P{row_idx}', row['P']); write_number(ws, f'Q{row_idx}', row['Q'])
+                   row = match_row.iloc[0]
+write_number(ws, f'C{row_idx}', row['C']); write_number(ws, f'D{row_idx}', row['D'])
+write_number(ws, f'E{row_idx}', row['E']); write_number(ws, f'F{row_idx}', row['F'])
+write_number(ws, f'G{row_idx}', row['G']); write_number(ws, f'I{row_idx}', row['I'])
+write_number(ws, f'J{row_idx}', row['J']); write_number(ws, f'K{row_idx}', row['K'])
+write_number(ws, f'L{row_idx}', row['L']); write_number(ws, f'M{row_idx}', row['M']) # เพิ่ม M
+write_number(ws, f'N{row_idx}', row['N']) # เพิ่ม N
+write_number(ws, f'O{row_idx}', row['O']); write_number(ws, f'P{row_idx}', row['P'])
+write_number(ws, f'Q{row_idx}', row['Q'])
             
             output = BytesIO()
             wb.save(output)
