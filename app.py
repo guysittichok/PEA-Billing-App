@@ -7,7 +7,7 @@ from io import BytesIO
 
 st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
 
-st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA (เวอร์ชันแก้ไข I, J, K)")
+st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA")
 
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
