@@ -4,21 +4,21 @@ import re
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="ระบบสกัดข้อมูลบิล PEA", layout="wide")
-st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA (คัดเฉพาะข้อมูลที่แม่นยำ)")
+st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
+st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA (ปรับปรุง Fallback Logic)")
 
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
         text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
 
-    # เหลือเฉพาะช่องที่ดึงแล้วชัวร์และตรงล็อก (ตัด M, N, O, Q ออก)
     result = {
         "ชื่อไฟล์": file_obj.name,
         "C": "", "D": "", "E": "", "F": "", "G": "", "H": "", 
-        "I": "", "J": "", "K": "", "L": "", "P": ""
+        "I": "", "J": "", "K": "", "L": "", "M": "", "N": "", 
+        "O": "", "P": "", "Q": ""
     }
 
-    # 1. Demand Charge (C, D, E, F, G)
+    # --- 1. Demand Charge ---
     for line in text.split('\n'):
         nums = re.findall(r"[\d,]+\.\d+", line)
         if not nums: continue
@@ -29,10 +29,13 @@ def extract_exact_pea_bill(file_obj):
         elif "Off Peak" in line:
             result["E"] = float(nums[0].replace(",", ""))
 
-    # 2. Energy Usage (I, J, K) - ดึงค่าสุดท้ายของบรรทัด
+    # --- 2. Energy Usage (I, J, K) พร้อม Fallback ---
+    # เราจะหาบรรทัดที่คำว่า Peak, Partial, Off ปรากฏอยู่ด้วย
     for line in text.split('\n'):
         nums = re.findall(r"[\d,]+\.\d+", line)
         if not nums: continue
+        
+        # ค้นหาค่าหน่วย (ใช้คำค้นหาที่กว้างขึ้น)
         if ("Peak" in line and "P" in line and "พลังงาน" in line) or ("Peak" in line and "P" in line and "Unit" in line):
             result["I"] = float(nums[-1].replace(",", ""))
         elif "Partial" in line and "PP" in line:
@@ -40,13 +43,20 @@ def extract_exact_pea_bill(file_obj):
         elif "Off" in line and "OP" in line:
             result["K"] = float(nums[-1].replace(",", ""))
 
-    # 3. เงินค่าไฟฟ้าฐาน (L) และ Power Factor (P)
-    # ใช้ Regex ที่ดึงเลขบรรทัดที่มีคีย์เวิร์ดชัดเจนเท่านั้น
-    l_match = re.search(r'เงินค่าไฟฟ้าฐาน.*?([\d,]+\.\d+)', text)
-    if l_match: result["L"] = float(l_match.group(1).replace(",", ""))
+    # --- 3. เก็บตกค่าที่เหลือด้วยวิธี Regex พื้นฐาน ---
+    def get_val(pattern):
+        m = re.search(pattern, text, re.I)
+        return float(m.group(1).replace(",", "")) if m else ""
+
+    # ดึงค่า O (รวมหน่วย) และ L (เงินค่าพลังงาน)
+    energy = re.search(r'([\d,]+\.\d+)\s+(?:หน่วย|Unit)', text)
+    if energy: result["O"] = float(energy.group(1).replace(",", ""))
     
-    p_match = re.search(r'(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s*Factor).*?([\d,]+\.\d+)', text, re.I)
-    if p_match: result["P"] = float(p_match.group(1).replace(",", ""))
+    result["L"] = get_val(r'เงินค่าไฟฟ้าฐาน.*?([\d,]+\.\d+)')
+    result["M"] = get_val(r'ค่า\s*Ft.*?([\d,]+\.\d+)')
+    result["N"] = get_val(r'ค่าบริการรายเดือน.*?([\d,]+\.\d+)')
+    result["P"] = get_val(r'คาเพาเวอร์แฟคเตอร.*?([\d,]+\.\d+)')
+    result["Q"] = get_val(r'รวมเงินค่าไฟฟ้า.*?([\d,]+\.\d+)')
 
     return result
 
@@ -55,11 +65,10 @@ uploaded_files = st.file_uploader("อัปโหลดไฟล์บิล PD
 if uploaded_files:
     data = [extract_exact_pea_bill(f) for f in uploaded_files]
     df = pd.DataFrame(data)
-    
-    # แสดงผลเฉพาะช่องที่เลือกไว้ (C ถึง L และ P)
+    # เพิ่ม st.data_editor ให้แก้ไขค่าที่อาจจะหลุดได้ทันที
     edited_df = st.data_editor(df, use_container_width=True)
     
     # ดาวน์โหลด Excel
     output = BytesIO()
     edited_df.to_excel(output, index=False)
-    st.download_button("🟢 ดาวน์โหลด Excel เฉพาะข้อมูลที่แม่นยำ", data=output.getvalue(), file_name="PEA_Clean_Report.xlsx")
+    st.download_button("🟢 ดาวน์โหลด Excel", data=output.getvalue(), file_name="PEA_Export.xlsx")
