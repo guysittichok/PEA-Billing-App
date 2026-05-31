@@ -3,7 +3,7 @@ import datetime
 
 st.set_page_config(page_title="Billing App", layout="centered")
 
-st.title("ระบบบันทึกข้อมูลและเจนรีพอร์ตค่าไฟฟ้าอัตโนมัติ")
+st.title("Billing App")
 
 
 st.divider()
