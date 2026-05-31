@@ -1,76 +1,85 @@
 import streamlit as st
-import datetime
 import pdfplumber
 import re
 import pandas as pd
+import openpyxl
 from io import BytesIO
 
 st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
 
-st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA (เวอร์ชันแก้ไข I, J, K)")
+st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA และบันทึกลง Excel")
 
+# ฟังก์ชันสกัดข้อมูล
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
-        text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+        page = pdf.pages[0]
+        text = page.extract_text()
+        tables = page.extract_tables()
 
-    result = {
-        "ชื่อไฟล์": file_obj.name,
-        "C": "", "D": "", "E": "", "F": "", "G": "", "H": "", 
-        "I": "", "J": "", "K": "", "L": "", "M": "", "N": "", 
-        "O": "", "P": "", "Q": ""
-    }
+    result = {"C": 0.0, "D": 0.0, "E": 0.0, "F": 0.0, "G": 0.0, "H": 0.0, 
+              "I": 0.0, "J": 0.0, "K": 0.0, "L": 0.0, "M": 0.0, "N": 0.0, 
+              "O": 0.0, "P": 0.0, "Q": 0.0}
 
-    # 1. Demand Charge (C, D, E, F, G)
-    # ใช้ Regex ที่ระบุพิกัดช่องชัดเจน
-    peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-    if peak:
-        result["C"] = float(peak.group(1).replace(",", ""))
-        result["F"] = float(peak.group(2).replace(",", ""))
+    # 1. ดึง Demand Charge
+    peak = re.search(r'Peak\s+([\d,]+\.\d+)', text, re.I)
+    if peak: result["C"] = float(peak.group(1).replace(",", ""))
+    
+    pp = re.search(r'Partial\s+Peak\s+([\d,]+\.\d+)', text, re.I)
+    if pp: result["D"] = float(pp.group(1).replace(",", ""))
 
-    pp = re.search(r'Partial\s+Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-    if pp:
-        result["D"] = float(pp.group(1).replace(",", ""))
-        result["G"] = float(pp.group(2).replace(",", ""))
-
-    op = re.search(r'Off\s+Peak\s+([\d,]+\.\d+)\s+กว', text, re.I)
-    if op:
-        result["E"] = float(op.group(1).replace(",", ""))
-
-    # 2. Energy Usage (I, J, K) - ดึงแบบระบุบรรทัด "พลังงานไฟฟ้า"
-    # แยกบรรทัดชัดเจนเพื่อไม่ให้สลับช่องกัน
-    for line in text.split('\n'):
-        line_clean = line.strip()
-        nums = re.findall(r"([\d,]+\.\d+)", line_clean)
-        if not nums: continue
-        
-        # ค้นหา Peak: บรรทัดต้องมีคำว่า "พลังงานไฟฟ้า" และ "P"
-        if "พลังงานไฟฟ้า" in line_clean and "P" in line_clean and "PP" not in line_clean:
-            result["I"] = float(nums[-1].replace(",", ""))
-            
-        # ค้นหา PP: บรรทัดต้องมี "PP"
-        elif "PP" in line_clean:
-            result["J"] = float(nums[-1].replace(",", ""))
-            
-        # ค้นหา OP: บรรทัดต้องมี "OP"
-        elif "OP" in line_clean:
-            result["K"] = float(nums[-1].replace(",", ""))
-
-    # 3. Energy Cost & Others
-    energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
-    if energy:
-        result["O"] = float(energy.group(1).replace(",", ""))
-        result["L"] = float(energy.group(2).replace(",", ""))
-
-    result["M"] = float(re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I).group(1).replace(",", "")) if re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I) else ""
-    result["N"] = float(re.search(r'ค่าบริการรายเดือน.*?([\d,]+\.\d+)', text, re.I).group(1).replace(",", "")) if re.search(r'ค่าบริการรายเดือน.*?([\d,]+\.\d+)', text, re.I) else ""
-    result["P"] = float(re.search(r'(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s*Factor).*?([\d,]+\.\d+)', text, re.I).group(1).replace(",", "")) if re.search(r'(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s*Factor).*?([\d,]+\.\d+)', text, re.I) else ""
-    result["Q"] = float(re.search(r'รวมเงินค่าไฟฟ้า\s*\(Sub\s*Total\)\s*([\d,]+\.\d+)', text, re.I).group(1).replace(",", "")) if re.search(r'รวมเงินค่าไฟฟ้า\s*\(Sub\s*Total\)\s*([\d,]+\.\d+)', text, re.I) else ""
+    # 2. ดึงข้อมูลจากตารางสำหรับ I, J, K
+    for table in tables:
+        for row in table:
+            row_str = " ".join([str(cell) for cell in row if cell])
+            if "พลังงานไฟฟ้า" in row_str:
+                nums = re.findall(r"[\d,]+\.\d+", row_str)
+                if len(nums) >= 3:
+                    result["I"] = float(nums[0].replace(",", ""))
+                    result["J"] = float(nums[1].replace(",", ""))
+                    result["K"] = float(nums[2].replace(",", ""))
+    
+    # 3. ดึงค่าอื่นๆ
+    q_match = re.search(r'รวมเงินค่าไฟฟ้า.*?([\d,]+\.\d+)', text, re.I)
+    if q_match: result["Q"] = float(q_match.group(1).replace(",", ""))
 
     return result
 
-# Streamlit UI
-uploaded_files = st.file_uploader("อัปโหลดไฟล์บิล PDF", type=["pdf"], accept_multiple_files=True)
-if uploaded_files:
-    data = [extract_exact_pea_bill(f) for f in uploaded_files]
-    df = pd.DataFrame(data)
-    st.data_editor(df, use_container_width=True)
+# ฟังก์ชันแก้ไขไฟล์ Excel
+def update_excel_file(template_path, extracted_data):
+    wb = openpyxl.load_workbook(template_path)
+    ws = wb.active
+    
+    # Map คอลัมน์ C(3) ถึง Q(17)
+    column_map = {
+        'C': 3, 'D': 4, 'E': 5, 'F': 6, 'G': 7, 'H': 8, 
+        'I': 9, 'J': 10, 'K': 11, 'L': 12, 'M': 13, 'N': 14, 
+        'O': 15, 'P': 16, 'Q': 17
+    }
+
+    for col_key, col_index in column_map.items():
+        ws.cell(row=20, column=col_index).value = extracted_data[col_key]
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+# --- หน้า UI ---
+uploaded_file = st.file_uploader("อัปโหลดไฟล์บิล PDF", type=["pdf"])
+
+if uploaded_file:
+    data = extract_exact_pea_bill(uploaded_file)
+    st.write("### ข้อมูลที่สกัดได้:")
+    st.json(data)
+
+    if st.button("บันทึกลง template.xlsx และดาวน์โหลด"):
+        try:
+            excel_binary = update_excel_file("template.xlsx", data)
+            st.download_button(
+                label="📥 ดาวน์โหลดไฟล์ Excel ที่อัปเดตแล้ว",
+                data=excel_binary,
+                file_name="ไฟฟ้า_อัปเดต_Row20.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            st.success("บันทึกข้อมูลเรียบร้อย!")
+        except FileNotFoundError:
+            st.error("ไม่พบไฟล์ 'template.xlsx' กรุณาตรวจสอบว่ามีไฟล์นี้อยู่ในโฟลเดอร์เดียวกันแล้ว")
