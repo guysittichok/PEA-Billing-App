@@ -77,67 +77,49 @@ st.markdown("---")
 st.subheader("📥 ส่งออกไปยังไฟล์ Excel ต้นแบบ")
 template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้นแบบ (.xlsx)", type=["xlsx"])
 
-if uploaded_files and template_file:
-    if st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
-        try:
-            # 1. โหลดไฟล์ Excel และเปิด Sheet
-            wb = openpyxl.load_workbook(template_file)
-            ws = wb.active 
-
-            # ฟังก์ชันดึงเลขบิล 12 หลักจากชื่อไฟล์ (ใช้เทียบกับ Excel คอลัมน์ A)
-            def extract_bill_no(filename):
-                match = re.search(r'\d{12}', str(filename))
-                return match.group(0) if match else None
-
-            # เตรียมคอลัมน์เทียบให้ dataframe
-            df['bill_only'] = df['ชื่อไฟล์'].apply(extract_bill_no)
-
-            # 2. วนลูปกรอกข้อมูลลง Excel
-            # เริ่มที่แถว 20 ตามภาพของคุณ
-            for row_idx in range(20, ws.max_row + 1):
-                excel_key = str(ws[f'A{row_idx}'].value).strip()
-                
-                # หาข้อมูลที่ตรงกับเลขบิลในคอลัมน์ A
-                match_row = df[df['bill_only'] == excel_key]
-                
-                if not match_row.empty:
-                    row = match_row.iloc[0]
-                    
-                    # --- Mapping ข้อมูล (ปรับแก้ตัวอักษรคอลัมน์ให้ตรงกับไฟล์คุณ) ---
-                    # พลังงานไฟฟ้าสูงสุด (หน่วย)
-                    ws[f'C{row_idx}'] = row['C'] # Peak
-                    ws[f'D{row_idx}'] = row['D'] # Partial Peak
-                    ws[f'E{row_idx}'] = row['E'] # Off Peak
-                    
-                    # ค่าใช้จ่ายพลังงานไฟฟ้าสูงสุด (บาท)
-                    ws[f'F{row_idx}'] = row['F'] # Peak
-                    ws[f'G{row_idx}'] = row['G'] # Partial Peak
-                    
-                    # พลังงานไฟฟ้า (หน่วย)
-                    ws[f'I{row_idx}'] = row['I'] # Peak
-                    ws[f'J{row_idx}'] = row['J'] # Partial Peak
-                    ws[f'K{row_idx}'] = row['K'] # Off Peak
-                    
-                    # ค่าใช้จ่ายพลังงานไฟฟ้า (บาท)
-                    ws[f'L{row_idx}'] = row['L'] # พลังงานไฟฟ้า
-                    
-                    # อื่นๆ
-                    ws[f'P{row_idx}'] = row['P'] # Power Factor
-                else:
-                    # ถ้าแถวไหนใน Excel ว่างหรือหาไม่เจอ ข้ามไป
-                    continue
+# ส่วนนี้คือการกรอกข้อมูลลง Excel โดยคงสูตรเดิมไว้
+if template_file and st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
+    try:
+        # โหลดไฟล์ Excel ต้นแบบ
+        wb = openpyxl.load_workbook(template_file)
+        ws = wb.active 
+        
+        # วนลูปเช็คแถวใน Excel (เริ่มจากแถว 20 ตามภาพของคุณ)
+        for row_idx in range(20, ws.max_row + 1):
+            # อ่านเลขบิลจากคอลัมน์ A
+            excel_key = str(ws[f'A{row_idx}'].value).strip()
             
-            # 3. เตรียมไฟล์สำหรับดาวน์โหลด
-            output = BytesIO()
-            wb.save(output)
-            output.seek(0)
+            if excel_key == "None" or excel_key == "": continue
             
-            st.success("กรอกข้อมูลลง Excel เสร็จสมบูรณ์!")
-            st.download_button(
-                label="📥 ดาวน์โหลดไฟล์ Excel",
-                data=output,
-                file_name="PEA_Result_Final.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        except Exception as e:
-            st.error(f"เกิดข้อผิดพลาด: {e}")
+            # ค้นหาข้อมูลใน df ที่ตรงกับเลขบิล
+            match_row = df[df['ชื่อไฟล์'].apply(lambda x: excel_key in str(x))]
+            
+            if not match_row.empty:
+                row = match_row.iloc[0]
+                
+                # กรอกเฉพาะค่า (Value) เท่านั้น สูตรใน Excel จะคงอยู่และทำงานต่อเอง
+                ws[f'C{row_idx}'] = row['C']
+                ws[f'D{row_idx}'] = row['D']
+                ws[f'E{row_idx}'] = row['E']
+                ws[f'F{row_idx}'] = row['F']
+                ws[f'G{row_idx}'] = row['G']
+                ws[f'I{row_idx}'] = row['I']
+                ws[f'J{row_idx}'] = row['J']
+                ws[f'K{row_idx}'] = row['K']
+                ws[f'L{row_idx}'] = row['L']
+                ws[f'P{row_idx}'] = row['P']
+        
+        # เตรียมไฟล์สำหรับดาวน์โหลด
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        st.success("กรอกข้อมูลลงไฟล์ต้นแบบเรียบร้อยแล้ว!")
+        st.download_button(
+            label="📥 ดาวน์โหลด Excel ที่กรอกข้อมูลเสร็จแล้ว",
+            data=output,
+            file_name="PEA_Result_Export.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except Exception as e:
+        st.error(f"เกิดข้อผิดพลาดในการสร้างไฟล์ Excel: {e}")
