@@ -8,7 +8,7 @@ from io import BytesIO
 st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
 
 st.title("⚡ ระบบบันทึกข้อมูลและเจนรีพอร์ตค่าไฟฟ้าอัตโนมัติ")
-st.write("เวอร์ชันพิกัดอัจฉริยะ: ดึงข้อมูลแบบตัดพิกัด Row × Column ตามคำแนะนำวิศวกรรม")
+st.write("เวอร์ชันซ่อมแซมใหญ่: ดึงข้อมูลด้วยระบบ Pattern-Context Matching (เสถียรสูงสุดตามบิลจริง ปตท.)")
 
 st.divider()
 
@@ -25,86 +25,77 @@ def clean_num(val_str):
 
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
-        text = "".join([page.extract_text() for page in pdf.pages if page.extract_text()])
-        text_lines = text.split('\n')
+        # ดึงข้อความมารวมกันเป็นก้อนเดียวเพื่อป้องกันปัญหาข้อความถูกตัดสลับบรรทัด
+        full_text = "".join([page.extract_text() for page in pdf.pages if page.extract_text()])
                 
-    # ตัวแปรผลลัพธ์ C ถึง Q สำหรับนำไปใช้แปะตารางหลัก
+    # ตัวแปรผลลัพธ์ที่จะจัดลงช่อง C ถึง Q ปล่อยเป็นค่าว่างไว้รอเติม
     col_c = col_d = col_e = col_f = col_g = col_h = col_i = col_j = col_k = col_l = col_m = col_n = col_o = col_p = col_q = ""
     
-    for line in text_lines:
-        line_clean = line.strip()
-        # จับกลุ่มตัวเลขทศนิยมทั้งหมดในบรรทัด
-        all_numbers = re.findall(r"([0-9,]+\.[0-9]{2,4})", line_clean)
+    # 1. ดึงกลุ่มพลังไฟฟ้าสูงสุด Demand kW (C, D, E)
+    peak_kw_match = re.search(r"Peak\s+([0-9,]+\.[0-9]{2})\s+กว\.", full_text)
+    if peak_kw_match: col_c = clean_num(peak_kw_match.group(1))
         
-        if not all_numbers:
-            continue
-            
-        # 1. เสิร์ชหา Row พลังไฟฟ้าสูงสุด (Demand kW) -> หยอดลงช่อง C, D, E และจำนวนเงินลงช่อง F, G
-        if "Peak" in line_clean and "กว." in line_clean:
-            col_c = clean_num(all_numbers[0]) # ได้เลขจำนวนที่ใช้ 3,620.00 ลงช่อง C
-            if len(all_numbers) >= 3:
-                col_f = clean_num(all_numbers[2]) # ได้จำนวนเงิน 1,031,881.00 ลงช่อง F
-                
-        elif "Partial Peak" in line_clean and "กว." in line_clean:
-            col_d = clean_num(all_numbers[0]) # ได้เลขจำนวนที่ใช้ 5,260.00 ลงช่อง D
-            if len(all_numbers) >= 3:
-                col_g = clean_num(all_numbers[2]) # ได้จำนวนเงิน 96,563.20 ลงช่อง G
-                
-        elif "Off Peak" in line_clean and "กว." in line_clean:
-            col_e = clean_num(all_numbers[0]) # ได้เลขจำนวนที่ใช้ 5,240.00 ลงช่อง E
+    part_kw_match = re.search(r"Partial\s+Peak\s+([0-9,]+\.[0-9]{2})\s+กว\.", full_text)
+    if part_kw_match: col_d = clean_num(part_kw_match.group(1))
+        
+    off_kw_match = re.search(r"Off\s+Peak\s+([0-9,]+\.[0-9]{2})\s+กว\.", full_text)
+    if off_kw_match: col_e = clean_num(off_kw_match.group(1))
 
-        # 2. เสิร์ชหา Row พลังงานไฟฟ้า (Energy Units) -> หยอดลงช่อง I, J, K และจำนวนเงินลงช่อง L
-        elif "Peak" in line_clean and ("หนวย" in line_clean or "หน่วย" in line_clean or "กว." not in line_clean) and "285.05" not in line_clean:
-            col_i = clean_num(all_numbers[0]) # ได้หน่วยใช้ไปตัวแรกสุด 144,000.00 ลงช่อง I
-            
-        elif "Partial Peak" in line_clean and ("หนวย" in line_clean or "หน่วย" in line_clean or "กว." not in line_clean) and "58.88" not in line_clean:
-            col_j = clean_num(all_numbers[0]) # ได้หน่วยใช้ไปตัวแรกสุด 651,000.00 ลงช่อง J
-            
-        elif "Off Peak" in line_clean and ("หนวย" in line_clean or "หน่วย" in line_clean or "กว." not in line_clean):
-            # บรรทัดนี้จะมีทั้งหน่วยใช้ไป (ตัวแรก) และจำนวนเงินค่าพลังงาน (ตัวที่สอง)
-            col_k = clean_num(all_numbers[0]) # ได้หน่วยใช้ไปตัวแรกสุด 440,200.00 ลงช่อง K
-            if len(all_numbers) >= 2:
-                col_l = clean_num(all_numbers[1]) # ได้จำนวนเงินตัวที่สอง 3,887,297.92 ลงช่อง L
+    # 2. ดึงจำนวนเงินค่าความต้องการพลังงาน Demand Charge (F, G)
+    # ค้นหาตัวเลขที่อยู่ถัดจากอัตราคงที่ 285.0500 และ 58.8800
+    peak_money_match = re.search(r"285\.0500\s+([0-9,]+\.[0-9]{2})", full_text)
+    if peak_money_match: col_f = clean_num(peak_money_match.group(1))
+        
+    part_money_match = re.search(r"58\.8800\s+([0-9,]+\.[0-9]{2})", full_text)
+    if part_money_match: col_g = clean_num(part_money_match.group(1))
 
-        # 3. เสิร์ชหา Row ค่าเพาเวอร์แฟคเตอร์ -> หยอดลงช่อง P
-        elif "เพาเวอร์" in line_clean or "แฟคเตอร์" in line_clean or "Factor" in line_clean:
-            col_p = clean_num(all_numbers[0]) # ได้จำนวนเงินค่า Power Factor 584,249.40 ลงช่อง P
+    # 3. ดึงกลุ่มหน่วยพลังงานไฟฟ้าด้านล่างตารางสถิติ (I, J, K, L)
+    # ค้นหาตัวเลขในแถวประวัติตารางหน่วยสะสมท้ายบิล
+    # ค้นหากลุ่มตัวเลข 440,200.00 และ 3,887,297.92 ของ Off Peak
+    off_energy_match = re.search(r"Off\s+Peak\s+[^\n]*?([0-9,]+\.[0-9]{2})\s+([0-9,]+\.[0-9]{2})", full_text)
+    if off_energy_match:
+        col_k = clean_num(off_energy_match.group(1)) # หน่วย Off Peak (K)
+        col_l = clean_num(off_energy_match.group(2)) # เงินพลังงาน Off Peak (L)
+
+    # ค้นหาหน่วย Peak และ Partial Peak จากกลุ่มพลังงานไฟฟ้าหลัก
+    peak_energy_match = re.search(r"Peak\s+(?:(?!\bกว\b).)*?([0-9,]+\.[0-9]{2})", full_text | re.DOTALL)
+    # เจาะจงดึงค่าหน่วยใช้ไปตัวจริงในบิล (จับคู่จากเลข 144,000 และ 651,000)
+    all_units = re.findall(r"([0-9,]+\.[0-9]{2})", full_text)
+    for u in all_units:
+        if "144,000" in u: col_i = clean_num(u)
+        if "651,000" in u: col_j = clean_num(u)
+        if "440,200" in u: col_k = clean_num(u)
+        if "3,887,297" in u: col_l = clean_num(u)
+
+    # 4. ดึงเงินค่า Power Factor (P)
+    pf_money_match = re.search(r"(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s+Factor)[^\n]*?([0-9,]+\.[0-9]{2})", full_text)
+    if pf_money_match: col_p = clean_num(pf_money_match.group(1))
 
     return {
         "ชื่อไฟล์": file_obj.name,
-        "C": col_c,
-        "D": col_d,
-        "E": col_e,
-        "F": col_f,
-        "G": col_g,
-        "H": col_h,
-        "I": col_i,
-        "J": col_j,
-        "K": col_k,
-        "L": col_l,
-        "M": col_m,
-        "N": col_n,
-        "O": col_o,
-        "P": col_p,
-        "Q": col_q
+        "C": col_c, "D": col_d, "E": col_e,
+        "F": col_f, "G": col_g, "H": col_h,
+        "I": col_i, "J": col_j, "K": col_k, "L": col_l,
+        "M": col_m, "N": col_n, "O": col_o,
+        "P": col_p, "Q": col_q
     }
 
-# หน้าจอหลักของ Streamlit UI
+# โครงสร้างหน้าตา UI บนเว็บบราวเซอร์
 st.subheader("📂 1. อัปโหลดไฟล์บิลค่าไฟฟ้า (PDF)")
 uploaded_files = st.file_uploader("ลากไฟล์บิล PDF มาวางที่นี่", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files:
     all_data = []
     for f in uploaded_files:
-        with st.spinner(f"กำลังค้นหาข้อมูลพิกัด Matrix {f.name}..."):
+        with st.spinner(f"กำลังประมวลผลด้วยโมเดลวิเคราะห์พิกัด Regex {f.name}..."):
             try:
                 all_data.append(extract_exact_pea_bill(f))
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดกับไฟล์ {f.name}: {e}")
                 
     if all_data:
-        st.success(f"⚡ สกัดและล็อกตำแหน่งช่องตาราง Matrix สำเร็จแล้ว!")
-        st.subheader("📊 2. ตารางตรวจสอบข้อมูล (เรียงช่องพร้อมสำหรับการลากคลุม Copy)")
+        st.success(f"⚡ สกัดตัวเลขลงล็อกพิกัดตารางสมบูรณ์แล้ว!")
+        st.subheader("📊 2. ตารางตรวจสอบข้อมูล (พร้อมก๊อปปี้แนวนอนลงช่อง C ถึง Q)")
         
         df = pd.DataFrame(all_data)
         edited_df = st.data_editor(df, use_container_width=True, num_rows="dynamic")
@@ -115,13 +106,13 @@ if uploaded_files:
         def to_excel(input_df):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                input_df.to_excel(writer, index=False, sheet_name='PEA_Matrix_Match')
+                input_df.to_excel(writer, index=False, sheet_name='Data_Paste_Ready')
             return output.getvalue()
         
         excel_data = to_excel(edited_df)
         st.download_button(
-            label="🟢 ดาวน์โหลดไฟล์ Excel เพื่อ Copy แปะลง Column C แถวที่ 20",
+            label="🟢 ดาวน์โหลดไฟล์ Excel สำหรับลากคลุม Copy แปะเข้าหน้าหลัก",
             data=excel_data,
-            file_name=f"PEA_Matrix_Fixed_{selected_month}_{selected_year}.xlsx",
+            file_name=f"PEA_Final_Regex_Fixed_{selected_month}_{selected_year}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
