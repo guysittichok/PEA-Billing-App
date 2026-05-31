@@ -77,46 +77,35 @@ st.markdown("---")
 st.subheader("📥 ส่งออกไปยังไฟล์ Excel ต้นแบบ")
 template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้นแบบ (.xlsx)", type=["xlsx"])
 
-if template_file and not df.empty:
-    if st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
-        # 1. โหลดไฟล์ Excel ต้นแบบ
-        wb = openpyxl.load_workbook(template_file)
-        ws = wb.active  # เลือก Sheet ที่ใช้งานอยู่ (ถ้ามีหลาย Sheet ให้ระบุชื่อ เช่น wb['Sheet1'])
+if st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
+    # 1. โหลดไฟล์ Excel ต้นแบบ
+    wb = openpyxl.load_workbook(template_file)
+    ws = wb.active 
+    
+    # สมมติว่า ชื่อไฟล์บิลของคุณอยู่ที่คอลัมน์ A (แถวที่ 2 เป็นต้นไป)
+    # ให้ปรับ 'A' เป็นคอลัมน์ที่เก็บชื่อไฟล์จริงๆ ใน Excel ของคุณ
+    for row_idx in range(2, ws.max_row + 1):
+        excel_bill_no = ws[f'A{row_idx}'].value
         
-        # 2. นำข้อมูลจาก df (ที่สกัดได้จาก PDF) ไปวางใน Excel
-        # ตัวอย่าง: วางข้อมูลลงในช่อง E2, F2, ... (ปรับตำแหน่งตามไฟล์ต้นแบบของคุณ)
-        for i, row in df.iterrows():
-            # i+2 คือเริ่มที่แถวที่ 2 (สมมติแถว 1 เป็นหัวตาราง)
-            ws[f'E{i+2}'] = row['E'] 
-            ws[f'F{i+2}'] = row['F']
-            # เพิ่มช่องอื่นๆ ได้ตามต้องการ เช่น ws[f'I{i+2}'] = row['I']
-            
-        # 3. เซฟไฟล์ลงหน่วยความจำ
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
+        # ค้นหาข้อมูลใน DataFrame (df) ที่ชื่อตรงกับใน Excel
+        match_row = df[df['ชื่อไฟล์'] == excel_bill_no]
+        
+        if not match_row.empty:
+            # ถ้าเจอข้อมูลที่ตรงกัน ให้กรอกลงไป
+            # แก้ไขชื่อคอลัมน์ 'E', 'F' ให้ตรงกับข้อมูลที่สกัดได้
+            ws[f'E{row_idx}'] = match_row.iloc[0]['E']
+            ws[f'F{row_idx}'] = match_row.iloc[0]['F']
+            ws[f'I{row_idx}'] = match_row.iloc[0]['I']
+            # เพิ่มคอลัมน์อื่นๆ ตามต้องการที่นี่...
 
-        # ก่อนจะเขียนข้อมูล ให้ลองเช็คดูก่อนว่ามันเจอข้อมูลไหม
-        if not data:
-            st.error("ไม่พบข้อมูลจากการสกัด PDF กรุณาตรวจสอบ Regex")
-        else:
-            # ใช้ openpyxl เขียนข้อมูล
-            for i, row in df.iterrows():
-                row_idx = i + 2
-                # ลองเขียนค่าแบบระบุชื่อคอลัมน์ให้ตรงกับที่ดึงมา
-                # เช่น ถ้าใน dictionary ของคุณมี key ว่า "C", "D"
-                ws[f'E{row_idx}'] = row.get("E", 0) 
-                ws[f'F{row_idx}'] = row.get("F", 0)
-                
-            # บังคับให้เซฟไฟล์ที่แก้ไขแล้วจริงๆ
-            output = BytesIO()
-            wb.save(output)
-            output.seek(0)
-        
-        # 4. ปุ่มดาวน์โหลด
-        st.download_button(
-            label="ดาวน์โหลดไฟล์ Excel ผลลัพธ์",
-            data=output,
-            file_name="PEA_Result.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    # 2. เซฟและเตรียมดาวน์โหลด
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    st.download_button(
+        label="ดาวน์โหลดไฟล์ Excel ผลลัพธ์",
+        data=output,
+        file_name="PEA_Result_Auto.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
