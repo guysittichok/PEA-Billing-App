@@ -80,41 +80,63 @@ template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้
 if uploaded_files and template_file:
     if st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
         try:
-            # 1. โหลดไฟล์ Excel ต้นแบบ
+            # 1. โหลดไฟล์ Excel และเปิด Sheet
             wb = openpyxl.load_workbook(template_file)
             ws = wb.active 
-            
-            # 2. เริ่มวนลูปค้นหาและกรอกข้อมูล
-            # เราจะวนลูปทุกแถวใน Excel ตั้งแต่แถวที่ 2 ถึงแถวสุดท้าย
-            for row_idx in range(2, ws.max_row + 1):
-                # ดึงชื่อไฟล์/รหัสจากคอลัมน์ A (ปรับ A เป็นคอลัมน์อื่นได้ถ้าจำเป็น)
-                excel_key = str(ws[f'A{row_idx}'].value)
-                
-                if excel_key == "None": continue
 
-                # ค้นหาใน df ว่ามีแถวไหนที่ชื่อไฟล์มีคำว่า excel_key อยู่บ้าง
-                # วิธีนี้ช่วยแก้ปัญหาเรื่อง .pdf หรือชื่อที่ยาวไม่เท่ากัน
-                match_row = df[df['ชื่อไฟล์'].apply(lambda x: excel_key in str(x))]
+            # ฟังก์ชันดึงเลขบิล 12 หลักจากชื่อไฟล์ (ใช้เทียบกับ Excel คอลัมน์ A)
+            def extract_bill_no(filename):
+                match = re.search(r'\d{12}', str(filename))
+                return match.group(0) if match else None
+
+            # เตรียมคอลัมน์เทียบให้ dataframe
+            df['bill_only'] = df['ชื่อไฟล์'].apply(extract_bill_no)
+
+            # 2. วนลูปกรอกข้อมูลลง Excel
+            # เริ่มที่แถว 20 ตามภาพของคุณ
+            for row_idx in range(20, ws.max_row + 1):
+                excel_key = str(ws[f'A{row_idx}'].value).strip()
+                
+                # หาข้อมูลที่ตรงกับเลขบิลในคอลัมน์ A
+                match_row = df[df['bill_only'] == excel_key]
                 
                 if not match_row.empty:
-                    # ถ้าเจอข้อมูล ให้กรอกลงไปในคอลัมน์ที่กำหนด (แก้ E, F, I เป็นคอลัมน์ที่ต้องการ)
-                    # ใช้ .iloc[0] เพื่อเอาค่าแถวแรกที่เจอ
-                    ws[f'E{row_idx}'] = match_row.iloc[0]['E']
-                    ws[f'F{row_idx}'] = match_row.iloc[0]['F']
-                    ws[f'I{row_idx}'] = match_row.iloc[0]['I']
-                    ws[f'L{row_idx}'] = match_row.iloc[0]['L']
-                    ws[f'P{row_idx}'] = match_row.iloc[0]['P']
+                    row = match_row.iloc[0]
+                    
+                    # --- Mapping ข้อมูล (ปรับแก้ตัวอักษรคอลัมน์ให้ตรงกับไฟล์คุณ) ---
+                    # พลังงานไฟฟ้าสูงสุด (หน่วย)
+                    ws[f'C{row_idx}'] = row['C'] # Peak
+                    ws[f'D{row_idx}'] = row['D'] # Partial Peak
+                    ws[f'E{row_idx}'] = row['E'] # Off Peak
+                    
+                    # ค่าใช้จ่ายพลังงานไฟฟ้าสูงสุด (บาท)
+                    ws[f'F{row_idx}'] = row['F'] # Peak
+                    ws[f'G{row_idx}'] = row['G'] # Partial Peak
+                    
+                    # พลังงานไฟฟ้า (หน่วย)
+                    ws[f'I{row_idx}'] = row['I'] # Peak
+                    ws[f'J{row_idx}'] = row['J'] # Partial Peak
+                    ws[f'K{row_idx}'] = row['K'] # Off Peak
+                    
+                    # ค่าใช้จ่ายพลังงานไฟฟ้า (บาท)
+                    ws[f'L{row_idx}'] = row['L'] # พลังงานไฟฟ้า
+                    
+                    # อื่นๆ
+                    ws[f'P{row_idx}'] = row['P'] # Power Factor
+                else:
+                    # ถ้าแถวไหนใน Excel ว่างหรือหาไม่เจอ ข้ามไป
+                    continue
             
             # 3. เตรียมไฟล์สำหรับดาวน์โหลด
             output = BytesIO()
             wb.save(output)
             output.seek(0)
             
-            st.success("กรอกข้อมูลเรียบร้อยแล้ว!")
+            st.success("กรอกข้อมูลลง Excel เสร็จสมบูรณ์!")
             st.download_button(
-                label="📥 ดาวน์โหลดไฟล์ที่เสร็จแล้ว",
+                label="📥 ดาวน์โหลดไฟล์ Excel",
                 data=output,
-                file_name="Updated_PEA_Bill.xlsx",
+                file_name="PEA_Result_Final.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         except Exception as e:
