@@ -63,7 +63,7 @@ template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้
 
 if uploaded_files:
     data = [extract_exact_pea_bill(f) for f in uploaded_files]
-    all_cols = ["ชื่อไฟล์", "C", "D", "E", "F", "G", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]
+    all_cols = ["ชื่อไฟล์", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]
     df = pd.DataFrame(data, columns=all_cols)
     st.data_editor(df, use_container_width=True)
 
