@@ -1,11 +1,13 @@
 import streamlit as st
+import datetime
 import pdfplumber
 import re
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(layout="wide")
-st.title("⚡ ระบบสกัดบิล PEA และกรอกลง Excel")
+st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
+
+st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA (เวอร์ชันแก้ไข I, J, K)")
 
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
@@ -72,27 +74,3 @@ if uploaded_files:
     data = [extract_exact_pea_bill(f) for f in uploaded_files]
     df = pd.DataFrame(data)
     st.data_editor(df, use_container_width=True)
-
-uploaded_files = st.file_uploader("1. อัปโหลดบิล PDF", accept_multiple_files=True)
-template_file = st.file_uploader("2. อัปโหลดไฟล์ Excel (.xlsx)", type=["xlsx"])
-
-if uploaded_files and template_file:
-    if st.button("เริ่มประมวลผลและสร้างไฟล์"):
-        # 1. สกัดข้อมูล
-        all_data = [extract_exact_pea_bill(f) for f in uploaded_files]
-        df_extracted = pd.DataFrame(all_data)
-        
-        # 2. อ่านไฟล์ Excel ต้นฉบับ
-        df_template = pd.read_excel(template_file)
-        
-        # 3. กรอกข้อมูล: สมมติว่าต้องการเอาข้อมูลไป "ต่อท้าย" ใน Excel
-        # ตรงนี้คือการนำข้อมูลที่สกัดได้ไป "แปะ" ลงใน DataFrame เดิม
-        df_combined = pd.concat([df_template, df_extracted], ignore_index=True)
-        
-        # 4. สร้างไฟล์ใหม่
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_combined.to_excel(writer, index=False)
-        
-        st.success("ประมวลผลเสร็จแล้ว!")
-        st.download_button("🟢 ดาวน์โหลด Excel ที่มีข้อมูลแล้ว", data=output.getvalue(), file_name="Completed_Report.xlsx")
