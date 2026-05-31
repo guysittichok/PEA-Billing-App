@@ -1,14 +1,11 @@
 import streamlit as st
-import datetime
 import pdfplumber
 import re
 import pandas as pd
 from io import BytesIO
-import openpyxl
 
-st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
-
-st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA")
+st.set_page_config(layout="wide")
+st.title("⚡ ระบบสกัดบิล PEA และกรอกลง Excel")
 
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
@@ -76,39 +73,26 @@ if uploaded_files:
     df = pd.DataFrame(data)
     st.data_editor(df, use_container_width=True)
 
-st.write("---")
-st.subheader("ส่วนการกรอกข้อมูลลง Excel")
-template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้นฉบับ (.xlsx) เพื่อกรอกค่า", type=["xlsx"])
+uploaded_files = st.file_uploader("1. อัปโหลดบิล PDF", accept_multiple_files=True)
+template_file = st.file_uploader("2. อัปโหลดไฟล์ Excel (.xlsx)", type=["xlsx"])
 
-if template_file:
-    if st.button("กรอกข้อมูลลง Excel"):
-        # โหลดไฟล์ Excel ต้นฉบับ
-        wb = openpyxl.load_workbook(template_file)
-        ws = wb.active # เลือกชีทที่ใช้งาน (แก้ชื่อชีทได้ เช่น wb['Sheet1'])
+if uploaded_files and template_file:
+    if st.button("เริ่มประมวลผลและสร้างไฟล์"):
+        # 1. สกัดข้อมูล
+        all_data = [extract_exact_pea_bill(f) for f in uploaded_files]
+        df_extracted = pd.DataFrame(all_data)
         
-        # นำข้อมูลจาก df (ที่ได้จากโค้ดเดิมของคุณ) มาวนลูปกรอก
-        # สมมติว่าในตาราง df ของคุณมีข้อมูลเรียงตามลำดับไฟล์ที่อัปโหลด
-        for idx, row in df.iterrows():
-            # กำหนดแถวที่จะกรอก (เช่น เริ่มที่แถว 5)
-            row_idx = 5 + idx 
-            
-            # --- ตรงนี้คือจุดที่คุณต้องแก้พิกัดให้ตรงกับช่องใน Excel ของคุณ ---
-            # ตัวอย่าง: ค่า C ของโปรแกรม ไปลงช่อง D ของ Excel
-            ws[f'D{row_idx}'] = row['C']
-            ws[f'E{row_idx}'] = row['D']
-            ws[f'F{row_idx}'] = row['E']
-            ws[f'I{row_idx}'] = row['I']
-            ws[f'J{row_idx}'] = row['J']
-            ws[f'K{row_idx}'] = row['K']
-            ws[f'L{row_idx}'] = row['L']
-            # คุณสามารถเพิ่ม ws[f'ช่อง{row_idx}'] = row['ตัวอักษร'] ได้ตามต้องการ
-            
-        # สร้างไฟล์ใหม่ให้ดาวน์โหลด
+        # 2. อ่านไฟล์ Excel ต้นฉบับ
+        df_template = pd.read_excel(template_file)
+        
+        # 3. กรอกข้อมูล: สมมติว่าต้องการเอาข้อมูลไป "ต่อท้าย" ใน Excel
+        # ตรงนี้คือการนำข้อมูลที่สกัดได้ไป "แปะ" ลงใน DataFrame เดิม
+        df_combined = pd.concat([df_template, df_extracted], ignore_index=True)
+        
+        # 4. สร้างไฟล์ใหม่
         output = BytesIO()
-        wb.save(output)
-        st.download_button(
-            label="🟢 ดาวน์โหลดไฟล์ Excel ที่กรอกข้อมูลแล้ว",
-            data=output.getvalue(),
-            file_name="PEA_Filled_Data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_combined.to_excel(writer, index=False)
+        
+        st.success("ประมวลผลเสร็จแล้ว!")
+        st.download_button("🟢 ดาวน์โหลด Excel ที่มีข้อมูลแล้ว", data=output.getvalue(), file_name="Completed_Report.xlsx")
