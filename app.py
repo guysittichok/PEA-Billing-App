@@ -1,60 +1,47 @@
 import streamlit as st
 import pdfplumber
-import re
 import pandas as pd
-from io import BytesIO
 import openpyxl
-
-st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
-st.title("⚡ ระบบสกัดข้อมูลบิลค่าไฟฟ้า PEA")
+from io import BytesIO
 
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
-        text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+        full_text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+        all_tables = []
+        for page in pdf.pages:
+            all_tables.extend(page.extract_tables())
 
+    # กำหนดค่าเริ่มต้นเป็น 0.0 ทุกช่อง
     result = {
         "ชื่อไฟล์": file_obj.name,
-        "C": 0.0, "D": 0.0, "E": 0.0, "F": 0.0, "G": 0.0, "H": 0.0,
+        "C": 0.0, "D": 0.0, "E": 0.0, "F": 0.0, "G": 0.0, "H": 0.0, 
         "I": 0.0, "J": 0.0, "K": 0.0, "L": 0.0, "M": 0.0, "N": 0.0, 
         "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
-    # 1. Demand Charge (C, D, E, F, G)
-    peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-    if peak:
-        result["C"] = float(peak.group(1).replace(",", ""))
-        result["F"] = float(peak.group(2).replace(",", ""))
+    # 1. ดึงยอดเงินจาก Text (ใช้ดึงค่ารวม)
+    def find_val(pattern):
+        match = re.search(pattern, full_text, re.I)
+        return float(match.group(1).replace(",", "")) if match else 0.0
 
-    pp = re.search(r'Partial\s+Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-    if pp:
-        result["D"] = float(pp.group(1).replace(",", ""))
-        result["G"] = float(pp.group(2).replace(",", ""))
+    result["M"] = find_val(r'เงินค่าไฟฟ้าฐาน.*?([\d,]+\.\d+)')
+    result["O"] = find_val(r'ค่า\s*Ft.*?=\s*[\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)')
+    result["L"] = find_val(r'รวมเงินค่าไฟฟ้า\s*\(Sub\s*Total\)\s*([\d,]+\.\d+)')
+    result["Q"] = find_val(r'รวมเงินค่าไฟฟ้าเดือนปัจจุบัน\s*\(Total\)\s*([\d,]+\.\d+)')
 
-    op = re.search(r'Off\s+Peak\s+([\d,]+\.\d+)\s+กว', text, re.I)
-    if op:
-        result["E"] = float(op.group(1).replace(",", ""))
-
-    # 2. Energy Usage (I, J, K)
-    for line in text.split('\n'):
-        nums = re.findall(r"([\d,]+\.\d+)", line)
-        if not nums: continue
-        if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
-        elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
-        elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
-
-    # 3. Energy Cost, Ft, Total (L, O, P, Q)
-    energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
-    if energy: result["L"] = float(energy.group(2).replace(",", ""))
-    
-    ft = re.search(r'ค่า\s*Ft.*?=\s*[\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)', text, re.I)
-    if ft: result["O"] = float(ft.group(1).replace(",", ""))
-    
-    pf = re.search(r'(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s*Factor).*?([\d,]+\.\d+)', text, re.I)
-    if pf: result["P"] = float(pf.group(1).replace(",", ""))
-    
-    total_match = re.search(r'รวมเงินค่าไฟฟ้า\s*\(Sub Total\)\s*([\d,]+\.\d+)', text, re.I)
-    if total_match:
-        result["Q"] = float(total_match.group(1).replace(",", ""))
+    # 2. ดึงจากตาราง (สำหรับค่า Peak, PP, OP, H)
+    for table in all_tables:
+        for row in table:
+            row_str = " ".join([str(cell) for cell in row if cell])
+            
+            # ตรรกะการเลือกค่า Peak/PP/OP
+            if "พลังงาน" in row_str or "Peak" in row_str or "OP" in row_str:
+                nums = [float(re.sub(r'[^\d.]', '', str(n))) for n in row if n and re.search(r'\d', str(n))]
+                if len(nums) >= 1:
+                    # ตัวอย่างการใส่ค่า (ปรับตามลำดับคอลัมน์ในตาราง PEA ของคุณ)
+                    if "Peak" in row_str: result["I"] = nums[-1] # พลังงาน P
+                    if "OP" in row_str: result["K"] = nums[-1]   # พลังงาน OP
+                    if "H" in row_str: result["H"] = nums[-1]    # ค่า H
 
     return result
 
