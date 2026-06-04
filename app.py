@@ -20,9 +20,7 @@ def extract_exact_pea_bill(file_obj):
     }
 
     # เช็กเงื่อนไขประเภทบิลเพื่อเลือกใช้ Logic การสกัดค่า
-    # ถ้ามีคำภาษาอังกฤษ TOU (Peak / Off Peak) แสดงว่าเป็นแบบที่ 1 หรือ 2
     is_tou = "Peak" in text or "Off Peak" in text
-    # ถ้ามีตัว H แสดงว่าเป็นรูปแบบที่ 2
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
@@ -39,10 +37,16 @@ def extract_exact_pea_bill(file_obj):
         if op_demand:
             result["D"] = float(op_demand.group(1).replace(",", ""))
 
-        h_demand = re.search(r'(?:H|Holiday)\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+        # --- แก้ไขเฉพาะจุดนี้: ปรับให้ดึงค่า กว. ของ H (132.00) มาใส่ช่อง E ให้ถูกต้อง ---
+        # ค้นหาคำว่า H โดดๆ ในตารางฝั่งซ้าย แล้วจับเอาตัวเลขตัวแรกที่พบหลังจากนั้นมาเป็นค่าช่อง E
+        h_demand = re.search(r'(?:^|\n|\s)H\s+([\d,]+\.\d+)', text)
         if h_demand:
             result["E"] = float(h_demand.group(1).replace(",", ""))
-            result["H"] = float(h_demand.group(2).replace(",", ""))
+
+        # ส่วนค่าใช้จ่ายที่เป็นบาทของ H ยังใช้ Regex ค้นหาบรรทัดสรุปราคาฝั่งขวาตามเดิม
+        h_cost = re.search(r'(?:H|Holiday).*?[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+        if h_cost:
+            result["H"] = float(h_cost.group(1).replace(",", ""))
 
         # 2. Energy Usage (I, J, K เรียงตามลำดับลงมา)
         for line in text.split('\n'):
@@ -56,7 +60,6 @@ def extract_exact_pea_bill(file_obj):
     # [เงื่อนไขเพิ่มเติม] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ ภาษาไทยล้วน)
     # ========================================================
     elif not is_tou:
-        # รูปแบบที่ 3: มีบรรทัดพลังไฟฟ้าสูงสุด (กรอก C, F และ I)
         if "พลังไฟฟ้าสูงสุด" in text:
             demand_match = re.search(r'พลังไฟฟ้าสูงสุด\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
             if demand_match:
@@ -66,8 +69,6 @@ def extract_exact_pea_bill(file_obj):
             energy_match = re.search(r'พลังงานไฟฟ้า\s+([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)', text)
             if energy_match:
                 result["I"] = float(energy_match.group(1).replace(",", ""))
-        
-        # รูปแบบที่ 4: มีบรรทัดเดียว ไม่มีพลังไฟฟ้าสูงสุด (กรอก I ช่องเดียวโดดๆ)
         else:
             energy_match = re.search(r'พลังงานไฟฟ้า\s+([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)', text)
             if energy_match:
@@ -105,7 +106,7 @@ def extract_exact_pea_bill(file_obj):
     if energy: result["L"] = float(energy.group(2).replace(",", ""))
     
     ft = re.search(r'ค่า\s*Ft.*?=\s*[\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)', text, re.I)
-    if not ft: # ดักสำรองกรณีรูปแบบฟอนต์ Ft บิลแบบอื่นเยื้องไม่เหมือนกัน
+    if not ft: 
         ft = re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I)
     if ft: result["O"] = float(ft.group(1).replace(",", ""))
     
