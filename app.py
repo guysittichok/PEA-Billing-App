@@ -19,14 +19,16 @@ def extract_exact_pea_bill(file_obj):
         "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
-    # เช็กเงื่อนไขประเภทบิล
-    is_tou = any(re.search(r''+k+r'\s+[\d,]+\.\d+\s+กว', text, re.I) for k in ["Peak", "Off Peak", "Partial Peak"])
+    # --- ส่วนเช็กเงื่อนไขประเภทบิล (ปรับปรุงให้ไม่โดนคำอธิบายท้ายบิลหลอก) ---
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
+    
+    # ถ้าในบิลมีคำว่า "พลังไฟฟ้าสูงสุด" และไม่มี "Partial Peak" หรือ " PP" แสดงว่าเป็นบิลอัตราปกติ (รูปแบบที่ 3) แน่นอน
+    is_normal_rate_type3 = "พลังไฟฟ้าสูงสุด" in text and not ("Partial Peak" in text or "PP" in text)
 
     # ========================================================
     # [คงเดิมไว้] -> รูปแบบที่ 2 (บิลแบบ P, OP, H)
     # ========================================================
-    if is_tou and has_h_mode:
+    if has_h_mode and not is_normal_rate_type3:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if peak:
             result["C"] = float(peak.group(1).replace(",", ""))
@@ -65,9 +67,9 @@ def extract_exact_pea_bill(file_obj):
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
-    # [แก้ไขเพิ่มเติม] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ) ให้ดึงจำนวนเงินลงช่อง L ให้ถูกต้องชัวร์
+    # [บังคับเข้าที่นี่ชัวร์ 100%] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ)
     # ========================================================
-    elif not is_tou:
+    elif is_normal_rate_type3 or "อัตราปกติ" in text:
         lines = text.split('\n')
         
         # รูปแบบที่ 3: มีคำว่า "พลังไฟฟ้าสูงสุด"
@@ -82,7 +84,7 @@ def extract_exact_pea_bill(file_obj):
                         else:
                             result["C"] = float(nums[-1].replace(",", ""))
                 
-                # ดึงเลขหน่วย (2010.00) และ ดึงจำนวนเงินค่าไฟฟ้าฐาน (7856.29) ลงช่อง L 
+                # ดึงเลขหน่วย (2010.00) ลงช่อง I และ จำนวนเงินค่าไฟฟ้าฐาน (7856.29) ลงช่อง L
                 if "พลังงานไฟฟ้า" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
@@ -91,8 +93,7 @@ def extract_exact_pea_bill(file_obj):
                         else:
                             result["I"] = float(nums[0].replace(",", ""))
                         
-                        # บิลรูปแบบนี้ จำนวนเงินค่าไฟฟ้าฐาน จะอยู่เป็นลำดับสุดท้ายในบรรทัดพลังงานไฟฟ้า (ตัวเลขตัวที่ 4 หรือ ตัวสุดท้าย)
-                        result["L"] = float(nums[-1].replace(",", ""))  # 7856.29 ลง L ตรงๆ
+                        result["L"] = float(nums[-1].replace(",", ""))  # 7856.29 ลง L แน่นอน
 
             # ดึงค่าบาทของพลังไฟฟ้าสูงสุดลงช่อง F
             demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
@@ -137,14 +138,13 @@ def extract_exact_pea_bill(file_obj):
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # 3. Energy Cost, Ft, Total (L, O, P, Q) -> ส่วนท้ายนี้ใช้ร่วมกันทุกแบบ
-    # ดักไว้ว่าถ้าเป็นบิลประเภทอื่น ค่อยใช้ Logic เดิมหาช่อง L แต่ถ้าดึงจากข้อ 3 (is_normal) ด้านบนมาแล้ว จะไม่ทับค่ากัน
     if result["L"] == 0.0:
         energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
         if not energy: 
             energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
         if energy: 
             try:
-                if not is_tou:
+                if "พลังไฟฟ้าสูงสุด" not in text:
                     base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
                     if base_cost_match:
                         result["L"] = float(base_cost_match.group(1).replace(",", ""))
