@@ -27,7 +27,7 @@ def extract_exact_pea_bill(file_obj):
     # [เงื่อนไขเพิ่มเติม] -> รูปแบบที่ 2 (บิลแบบ P, OP, H)
     # ========================================================
     if is_tou and has_h_mode:
-        # 1. Demand Charge (C, D, E, F, H) *ช่อง G และ H เป็น 0.0 ไม่กรอก*
+        # 1. Demand Charge (C, D, E, F) *ช่อง G และ H ล็อกให้เป็น 0.0*
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if peak:
             result["C"] = float(peak.group(1).replace(",", ""))
@@ -37,29 +37,41 @@ def extract_exact_pea_bill(file_obj):
         if op_demand:
             result["D"] = float(op_demand.group(1).replace(",", ""))
 
-        # --- แก้ไขจุดดึงค่า กว. ของ H (ดึงค่าตัวสุดท้ายของบรรทัดตารางซ้ายสุดที่มี H เพื่อให้ได้ 132.00) ---
-        for line in text.split('\n'):
-            if line.strip().startswith("H ") or " H " in line:
-                # แยกหาตัวเลขทั้งหมดในบรรทัดที่มี H
-                nums_in_h = re.findall(r"([\d,]+\.\d+)", line)
-                # ในบรรทัดตารางฝั่งซ้าย (Demand) จะมีโครงสร้าง: เลขหลัง เลขก่อน และ จำนวนที่ใช้ (Consumption Unit)
-                if len(nums_in_h) >= 3 and "กว" not in line and "หน่วย" not in line:
-                    result["E"] = float(nums_in_h[2].replace(",", "")) # ดึงตัวเลขตัวที่ 3 (จำนวนที่ใช้ = 132.00)
-                    break
+        # ค้นหาค่าของ H ในส่วนของ พลังไฟฟ้าสูงสุด (กิโลวัตต์) เพื่อมาใส่ช่อง E ให้ถูกต้อง (ต้องได้ 132.00)
+        # ดึงเฉพาะบรรทัดที่เป็น H และอยู่ก่อนหน้ากลุ่มสรุปพลังงานไฟฟ้า (หน่วย)
+        lines = text.split('\n')
+        energy_section_started = False
         
-        # มั่นใจว่าช่อง H และ G จะปล่อยว่างหรือเป็น 0.0 ตามที่คุณสั่ง
+        for line in lines:
+            if "พลังงานไฟฟ้า" in line:
+                energy_section_started = True
+            
+            # ตรวจสอบบรรทัด H ที่อยู่โซนบน (Demand)
+            if not energy_section_started and (line.strip().startswith("H ") or " H " in line):
+                nums_in_h = re.findall(r"([\d,]+\.\d+)", line)
+                if len(nums_in_h) >= 3:
+                    result["E"] = float(nums_in_h[2].replace(",", "")) # เจาะจงตัวเลขตัวที่ 3 (จำนวนที่ใช้) -> 132.00
+        
+        # บังคับล็อกค่าคอลัมน์ G และ H ให้เคลียร์เป็น 0.0 แน่นอน
         result["G"] = 0.0
         result["H"] = 0.0
 
-        # 2. Energy Usage (I, J, K เรียงตามลำดับลงมา)
-        for line in text.split('\n'):
+        # 2. Energy Usage (I, J, K เรียงตามลำดับ พลังงานไฟฟ้า P, OP, H)
+        for line in lines:
             nums = re.findall(r"([\d,]+\.\d+)", line)
             if not nums: continue
-            if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
-            elif "OP" in line: result["J"] = float(nums[-1].replace(",", ""))
-            elif "H " in line or "Holiday" in line: 
-                if len(nums) >= 3 and ("หน่วย" in line or any(k in text for k in ["Peak 30120.00", "Off Peak 43440.00"])):
-                    result["K"] = float(nums[-1].replace(",", ""))
+            if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: 
+                result["I"] = float(nums[-1].replace(",", ""))
+            elif "OP" in line and "หน่วย" in line: 
+                result["J"] = float(nums[-1].replace(",", ""))
+            elif ("H " in line or "Holiday" in line) and "หน่วย" in line: 
+                result["K"] = float(nums[-1].replace(",", ""))
+                
+        # เคสสำรองเผื่อข้อความบิลพิมพ์คำว่าหน่วยเยื้องไปบรรทัดอื่น (เช็กจากบรรทัดสรุปราคาขวา)
+        if result["K"] == 0.0:
+            h_unit_match = re.search(r'(?:H|Holiday)\s+([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text, re.I)
+            if h_unit_match:
+                result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
     # [เงื่อนไขเพิ่มเติม] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ ภาษาไทยล้วน)
