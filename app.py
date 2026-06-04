@@ -65,7 +65,7 @@ def extract_exact_pea_bill(file_obj):
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
-    # [แก้ไขตรรกะใหม่] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ) ให้ดึงคอลัมน์จำนวนที่ใช้
+    # [แก้ไขเพิ่มเติม] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ) ให้ดึงจำนวนเงินลงช่อง L ให้ถูกต้องชัวร์
     # ========================================================
     elif not is_tou:
         lines = text.split('\n')
@@ -73,26 +73,26 @@ def extract_exact_pea_bill(file_obj):
         # รูปแบบที่ 3: มีคำว่า "พลังไฟฟ้าสูงสุด"
         if "พลังไฟฟ้าสูงสุด" in text:
             for line in lines:
-                # แก้ไข: ดึงเลขจากคอลัมน์ "จำนวนที่ใช้" ของบรรทัดพลังไฟฟ้าสูงสุด (เช่น 4.00) ลงช่อง C
+                # ดึงเลข กว. (4.00) จากคอลัมน์จำนวนที่ใช้ลงช่อง C
                 if "พลังไฟฟ้าสูงสุด" in line:
-                    # หาตัวเลขทั้งหมดในบรรทัด แล้วเลือกตัวสุดท้ายก่อนที่จะถึงตารางสรุปเงินค่าฐาน
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
-                        # บิลประเภทนี้มักมีเลข 3 ชุด (เลขอ่านครั้งหลัง, เลขอ่านครั้งก่อน, จำนวนที่ใช้) จึงเลือกตัวสุดท้ายของกลุ่มนี้
-                        # ดักไว้ว่าถ้ามีตัวเลขมากกว่าหรือเท่ากับ 3 ตัว ให้เอาตัวที่ 3 (index 2) ซึ่งคือจำนวนที่ใช้จริง
                         if len(nums) >= 3:
                             result["C"] = float(nums[2].replace(",", ""))
                         else:
                             result["C"] = float(nums[-1].replace(",", ""))
                 
-                # แก้ไข: ดึงเลขจากคอลัมน์ "จำนวนที่ใช้" ของบรรทัดพลังงานไฟฟ้า (เช่น 2010.00) ลงช่อง I
+                # ดึงเลขหน่วย (2010.00) และ ดึงจำนวนเงินค่าไฟฟ้าฐาน (7856.29) ลงช่อง L 
                 if "พลังงานไฟฟ้า" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
                         if len(nums) >= 3:
-                            result["I"] = float(nums[2].replace(",", ""))
+                            result["I"] = float(nums[2].replace(",", ""))  # 2010.00 ลง I
                         else:
                             result["I"] = float(nums[0].replace(",", ""))
+                        
+                        # บิลรูปแบบนี้ จำนวนเงินค่าไฟฟ้าฐาน จะอยู่เป็นลำดับสุดท้ายในบรรทัดพลังงานไฟฟ้า (ตัวเลขตัวที่ 4 หรือ ตัวสุดท้าย)
+                        result["L"] = float(nums[-1].replace(",", ""))  # 7856.29 ลง L ตรงๆ
 
             # ดึงค่าบาทของพลังไฟฟ้าสูงสุดลงช่อง F
             demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
@@ -109,6 +109,7 @@ def extract_exact_pea_bill(file_obj):
                             result["I"] = float(nums[2].replace(",", ""))
                         else:
                             result["I"] = float(nums[0].replace(",", ""))
+                        result["L"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
     # [คงเดิมไว้] -> รูปแบบที่ 1 (บิลดั้งเดิมของคุณเป๊ะๆ ไม่แก้อะไรเลย)
@@ -136,21 +137,23 @@ def extract_exact_pea_bill(file_obj):
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # 3. Energy Cost, Ft, Total (L, O, P, Q) -> ส่วนท้ายนี้ใช้ร่วมกันทุกแบบ
-    energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
-    if not energy: 
-        energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
-    if energy: 
-        try:
-            if not is_tou:
-                base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
-                if base_cost_match:
-                    result["L"] = float(base_cost_match.group(1).replace(",", ""))
+    # ดักไว้ว่าถ้าเป็นบิลประเภทอื่น ค่อยใช้ Logic เดิมหาช่อง L แต่ถ้าดึงจากข้อ 3 (is_normal) ด้านบนมาแล้ว จะไม่ทับค่ากัน
+    if result["L"] == 0.0:
+        energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
+        if not energy: 
+            energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
+        if energy: 
+            try:
+                if not is_tou:
+                    base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
+                    if base_cost_match:
+                        result["L"] = float(base_cost_match.group(1).replace(",", ""))
+                    else:
+                        result["L"] = float(energy.group(1).replace(",", ""))
                 else:
-                    result["L"] = float(energy.group(1).replace(",", ""))
-            else:
-                result["L"] = float(energy.group(2).replace(",", ""))
-        except:
-            result["L"] = float(energy.group(1).replace(",", ""))
+                    result["L"] = float(energy.group(2).replace(",", ""))
+            except:
+                result["L"] = float(energy.group(1).replace(",", ""))
     
     ft = re.search(r'ค่า\s*Ft.*?=\s*[\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)', text, re.I)
     if not ft: 
