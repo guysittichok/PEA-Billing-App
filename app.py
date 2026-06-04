@@ -65,7 +65,7 @@ def extract_exact_pea_bill(file_obj):
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
-    # [แก้ไขเฉพาะจุด] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ)
+    # [แก้ไขเฉพาะจุดสุดท้าย] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ)
     # ========================================================
     elif not is_tou:
         lines = text.split('\n')
@@ -73,7 +73,7 @@ def extract_exact_pea_bill(file_obj):
         # รูปแบบที่ 3: มีคำว่า "พลังไฟฟ้าสูงสุด"
         if "พลังไฟฟ้าสูงสุด" in text:
             for line in lines:
-                # ดึงเลข กว. (4.00) ลงช่อง C จากคอลัมน์จำนวนที่ใช้ (ตัวเลขตัวสุดท้ายของกลุ่มแรก)
+                # ดึงเลข กว. (4.00) ลงช่อง C จากคอลัมน์จำนวนที่ใช้
                 if "พลังไฟฟ้าสูงสุด" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
@@ -82,34 +82,38 @@ def extract_exact_pea_bill(file_obj):
                         else:
                             result["C"] = float(nums[-1].replace(",", ""))
                 
-                # ดึงเลขหน่วย (2010.00) ลงช่อง I และค่าเงินค่าไฟฟ้าฐานลงช่อง L ล่วงหน้าตรงนี้เลย
+                # ดึงเลขหน่วย (เช่น 2010.00) ลงช่อง I และค่าไฟฟ้าฐาน (เช่น 7856.29) ลงช่อง L
                 if "พลังงานไฟฟ้า" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
-                        if len(nums) >= 3:
-                            result["I"] = float(nums[2].replace(",", ""))  # 2010.00 ลง I
+                        if len(nums) >= 4:
+                            result["I"] = float(nums[2].replace(",", ""))  # ตัวที่ 3 คือจำนวนหน่วยที่ใช้ (2010.00)
+                            result["L"] = float(nums[3].replace(",", ""))  # ตัวที่ 4 คือจำนวนเงินค่าไฟฟ้าฐาน (7856.29)
+                        elif len(nums) == 3:
+                            result["I"] = float(nums[2].replace(",", ""))
+                            result["L"] = float(nums[-1].replace(",", ""))
                         else:
                             result["I"] = float(nums[0].replace(",", ""))
-                        
-                        # เพิ่มพิกัด: เอาตัวเลขสุดท้ายของบรรทัดพลังงานไฟฟ้า (ค่าเงินค่าไฟฟ้าฐาน เช่น 7856.29) มาใส่ช่อง L
-                        result["L"] = float(nums[-1].replace(",", ""))
 
             # ดึงค่าบาทของพลังไฟฟ้าสูงสุดลงช่อง F
             demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
             if demand_cost_match:
                 result["F"] = float(demand_cost_match.group(1).replace(",", ""))
         
-        # รูปแบบที่ 4: บรรทัดเดียว ไม่มีพลังไฟฟ้าสูงสุด
+        # รูปแบบที่ 4: บรรทัดเดียว ไม่มีพลังไฟฟ้าสูงสุด (เช่น เคส 2094.00 และ 8184.61)
         else:
             for line in lines:
                 if "พลังงานไฟฟ้า" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
-                        if len(nums) >= 3:
+                        if len(nums) >= 4:
+                            result["I"] = float(nums[2].replace(",", ""))  # ตัวที่ 3 คือจำนวนหน่วยที่ใช้ (2094.00)
+                            result["L"] = float(nums[3].replace(",", ""))  # ตัวที่ 4 คือจำนวนเงินค่าไฟฟ้าฐาน (8184.61)
+                        elif len(nums) == 3:
                             result["I"] = float(nums[2].replace(",", ""))
+                            result["L"] = float(nums[-1].replace(",", ""))
                         else:
                             result["I"] = float(nums[0].replace(",", ""))
-                        result["L"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
     # [คงเดิมไว้] -> รูปแบบที่ 1 (บิลดั้งเดิมของคุณเป๊ะๆ ไม่แก้อะไรเลย)
