@@ -19,12 +19,12 @@ def extract_exact_pea_bill(file_obj):
         "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
-    # เช็กเงื่อนไขประเภทบิล (ใช้เกณฑ์เดิมที่บิลแบบ 1 และ 2 ทำงานได้ถูกต้อง)
+    # เช็กเงื่อนไขประเภทบิล
     is_tou = any(re.search(r''+k+r'.*?(?:กว|หน่วย|หนอรย|หนวย)', text, re.I) for k in ["Peak", "Off Peak", "Partial Peak"])
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
-    # [โครงสร้างเดิม] -> รูปแบบที่ 2 (บิลแบบ P, OP, H)
+    # [คงเดิมไว้] -> รูปแบบที่ 2 (บิลแบบ P, OP, H)
     # ========================================================
     if is_tou and has_h_mode:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
@@ -65,24 +65,32 @@ def extract_exact_pea_bill(file_obj):
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
-    # [โครงสร้างเดิม] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ)
+    # [แก้ไขคอลัมน์ให้ถูกต้อง] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ)
     # ========================================================
     elif not is_tou:
         lines = text.split('\n')
+        
+        # รูปแบบที่ 3: มีคำว่า "พลังไฟฟ้าสูงสุด"
         if "พลังไฟฟ้าสูงสุด" in text:
             for line in lines:
+                # แก้ไข: ดึงเลข กว. (4.00) มาใส่ช่อง C ตรงๆ ห้ามไปใส่ช่องอื่น
                 if "พลังไฟฟ้าสูงสุด" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
                         result["C"] = float(nums[0].replace(",", ""))
+                
+                # แก้ไข: ดึงเลขหน่วย (2010.00) มาใส่ช่อง I ตรงๆ ห้ามหลุดไปช่องอื่น
                 if "พลังงานไฟฟ้า" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
                         result["I"] = float(nums[0].replace(",", ""))
 
+            # ดึงค่าบาทของพลังไฟฟ้าสูงสุดลงช่อง F
             demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
             if demand_cost_match:
                 result["F"] = float(demand_cost_match.group(1).replace(",", ""))
+        
+        # รูปแบบที่ 4: บรรทัดเดียว ไม่มีพลังไฟฟ้าสูงสุด
         else:
             for line in lines:
                 if "พลังงานไฟฟ้า" in line:
@@ -91,7 +99,7 @@ def extract_exact_pea_bill(file_obj):
                         result["I"] = float(nums[0].replace(",", ""))
 
     # ========================================================
-    # [โครงสร้างเดิม] -> รูปแบบที่ 1 (บิลดั้งเดิมของคุณเป๊ะๆ)
+    # [คงเดิมไว้] -> รูปแบบที่ 1 (บิลดั้งเดิมของคุณเป๊ะๆ ไม่แก้อะไรเลย)
     # ========================================================
     else:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
@@ -115,12 +123,13 @@ def extract_exact_pea_bill(file_obj):
             elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
-    # 3. Energy Cost, Ft, Total (L, O, P, Q) -> ประมวลผลท้ายบิลตามปกติ
+    # 3. Energy Cost, Ft, Total (L, O, P, Q) -> ส่วนท้ายนี้ใช้ร่วมกันทุกแบบ
     energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
     if not energy: 
         energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
     if energy: 
         try:
+            # ดักเคสถ้าเข้าเงื่อนไขรูปแบบที่ 3/4 เพื่อให้ดึงค่าเงินค่าไฟฟ้าฐานลงช่อง L ได้ถูกต้อง ไม่ตีกัน
             if not is_tou:
                 base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
                 if base_cost_match:
@@ -143,35 +152,6 @@ def extract_exact_pea_bill(file_obj):
     total_match = re.search(r'รวมเงินค่าไฟฟ้า\s*\(Sub Total\)\s*([\d,]+\.\d+)', text, re.I)
     if total_match:
         result["Q"] = float(total_match.group(1).replace(",", ""))
-
-
-    # ========================================================
-    # 🌟 [จุดแก้ไขเฉพาะบิลแบบที่ 3] ตรวจสอบและย้ายสลับคอลัมน์กลับมาให้ถูกต้อง
-    # ========================================================
-    # ถ้าบิลมีคำว่า "พลังไฟฟ้าสูงสุด" แต่ไม่มี "Partial Peak" หรือ "PP" (ตัวบ่งชี้ว่าเป็นอัตราปกติแบบที่ 3)
-    if "พลังไฟฟ้าสูงสุด" in text and not ("Partial Peak" in text or "PP" in text):
-        # ดึงเลขจากบรรทัด พลังไฟฟ้าสูงสุด ใหม่โดยตรงเพื่อความแม่นยำ
-        dm_match = re.search(r'พลังไฟฟ้าสูงสุด\s+([\d,]+\.\d+)', text)
-        en_match = re.search(r'พลังงานไฟฟ้า\s+([\d,]+\.\d+)', text)
-        
-        # ย้ายค่ามาใส่ตำแหน่งที่ถูกต้องตามหน้างานจริง
-        if dm_match:
-            result["C"] = float(dm_match.group(1).replace(",", ""))  # พลังไฟฟ้าสูงสุด (4) ลงช่อง C
-        if en_match:
-            result["I"] = float(en_match.group(1).replace(",", ""))  # จำนวนหน่วย (2010) ลงช่อง I
-            
-        # ดึงค่าจำนวนเงินค่าไฟฟ้าฐาน (บาท) ของบิลแบบที่ 3 ใหม่ให้ถูกต้อง ไม่ให้ทับซ้อนกับช่องหน่วย
-        base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?\s+([\d,]+\.\d+)', text)
-        if base_cost_match:
-            result["L"] = float(base_cost_match.group(1).replace(",", ""))
-        
-        # ล้างช่องอื่นที่เกิดจากการดึงค่าผิดพลาดของ Regex รูปแบบที่ 1 ออกให้หมด
-        result["D"] = 0.0
-        result["E"] = 0.0
-        result["G"] = 0.0
-        result["H"] = 0.0
-        result["J"] = 0.0
-        result["K"] = 0.0
 
     return result
 
