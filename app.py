@@ -12,6 +12,7 @@ def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
         text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
 
+    # ตั้งค่าเริ่มต้นเป็น 0.0 ตามแบบเดิมของคุณ
     result = {
         "ชื่อไฟล์": file_obj.name,
         "C": 0.0, "D": 0.0, "E": 0.0, "F": 0.0, "G": 0.0, "H": 0.0,
@@ -19,34 +20,98 @@ def extract_exact_pea_bill(file_obj):
         "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
-    # 1. Demand Charge (C, D, E, F, G)
-    peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-    if peak:
-        result["C"] = float(peak.group(1).replace(",", ""))
-        result["F"] = float(peak.group(2).replace(",", ""))
+    # ----------------------------------------------------
+    # ส่วนที่ 1: ตรวจสอบและแบ่งกลุ่มรูปแบบบิล (Bill Type Identification)
+    # ----------------------------------------------------
+    is_tou = any(x in text for x in ["Peak", "Off Peak", "Partial Peak", "PP", "OP"])
+    has_holiday = "H " in text or "\nH" in text or " H" in text
 
-    pp = re.search(r'Partial\s+Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-    if pp:
-        result["D"] = float(pp.group(1).replace(",", ""))
-        result["G"] = float(pp.group(2).replace(",", ""))
-
-    op = re.search(r'Off\s+Peak\s+([\d,]+\.\d+)\s+กว', text, re.I)
-    if op:
-        result["E"] = float(op.group(1).replace(",", ""))
-
-    # 2. Energy Usage (I, J, K)
-    for line in text.split('\n'):
-        nums = re.findall(r"([\d,]+\.\d+)", line)
-        if not nums: continue
-        if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
-        elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
-        elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
-
-    # 3. Energy Cost, Ft, Total (L, O, P, Q)
-    energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
-    if energy: result["L"] = float(energy.group(2).replace(",", ""))
+    # ----------------------------------------------------
+    # ส่วนที่ 2: ดึงข้อมูลตามรูปแบบบิลที่ตรวจสอบได้
+    # ----------------------------------------------------
     
-    ft = re.search(r'ค่า\s*Ft.*?=\s*[\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)', text, re.I)
+    # ==== รูปแบบที่ 1: บิล TOU ปกติ (มี P, PP, OP) ====
+    if is_tou and not has_holiday:
+        # 1. Demand Charge (C, D, E, F, G)
+        peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+        if peak:
+            result["C"] = float(peak.group(1).replace(",", ""))
+            result["F"] = float(peak.group(2).replace(",", ""))
+
+        pp = re.search(r'Partial\s+Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+        if pp:
+            result["D"] = float(pp.group(1).replace(",", ""))
+            result["G"] = float(pp.group(2).replace(",", ""))
+
+        op = re.search(r'Off\s+Peak\s+([\d,]+\.\d+)\s+กว', text, re.I)
+        if op:
+            result["E"] = float(op.group(1).replace(",", ""))
+
+        # 2. Energy Usage (I, J, K)
+        for line in text.split('\n'):
+            nums = re.findall(r"([\d,]+\.\d+)", line)
+            if not nums: continue
+            if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
+            elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
+            elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
+
+    # ==== รูปแบบที่ 2: บิล TOU แบบพิเศษ (มี P, OP, H) ====
+    elif is_tou and has_holiday:
+        # 1. Demand Charge (จัดเรียงตามลำดับ แต่อดกรอกช่อง G)
+        peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+        if peak:
+            result["C"] = float(peak.group(1).replace(",", ""))
+            result["F"] = float(peak.group(2).replace(",", ""))
+
+        # แถวที่ 2 เป็น Off Peak ยิงเข้าช่อง D (ส่วนช่อง G ปล่อยเป็น 0.0 ไม่กรอกค่า)
+        op_demand = re.search(r'Off\s+Peak\s+([\d,]+\.\d+)\s+กว', text, re.I)
+        if op_demand:
+            result["D"] = float(op_demand.group(1).replace(",", ""))
+
+        # แถวที่ 3 เป็น H (Holiday) ยิงเข้าช่อง E และ H
+        h_demand = re.search(r'(?:\s+|\n|^)H\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+        if h_demand:
+            result["E"] = float(h_demand.group(1).replace(",", ""))
+            result["H"] = float(h_demand.group(2).replace(",", ""))
+
+        # 2. Energy Usage (I, J, K เรียงตามลำดับลงมา)
+        for line in text.split('\n'):
+            nums = re.findall(r"([\d,]+\.\d+)", line)
+            if not nums: continue
+            if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
+            elif "OP" in line: result["J"] = float(nums[-1].replace(",", ""))
+            elif "H " in line or line.strip().startswith("H ") or " H " in line: result["K"] = float(nums[-1].replace(",", ""))
+
+    # ==== รูปแบบที่ 3 และ 4: บิลอัตราปกติ (ภาษาไทยล้วน ไม่มี P, PP, OP, H) ====
+    else:
+        # ค้นหาว่าในบิลมีแถว "พลังไฟฟ้าสูงสุด" หรือไม่
+        has_max_demand = "พลังไฟฟ้าสูงสุด" in text
+        
+        if has_max_demand:
+            # ==== รูปแบบที่ 3: อัตราปกติแบบมี พลังไฟฟ้าสูงสุด (กรอก C และ I) ====
+            demand_match = re.search(r'พลังไฟฟ้าสูงสุด\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
+            if demand_match:
+                result["C"] = float(demand_match.group(1).replace(",", ""))
+                result["F"] = float(demand_match.group(2).replace(",", ""))
+                
+            energy_match = re.search(r'พลังงานไฟฟ้า\s+([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)', text)
+            if energy_match:
+                result["I"] = float(energy_match.group(1).replace(",", ""))
+        else:
+            # ==== รูปแบบที่ 4: อัตราปกติแบบไม่มี พลังไฟฟ้าสูงสุด (มีบรรทัดเดียว กรอกลงช่อง I) ====
+            energy_match = re.search(r'พลังงานไฟฟ้า\s+([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)', text)
+            if energy_match:
+                result["I"] = float(energy_match.group(1).replace(",", ""))
+
+    # ----------------------------------------------------
+    # ส่วนที่ 3: ดึงค่าใช้จ่าย และ ค่าอื่นๆ ด้านล่างบิล (ใช้ได้กับทุกรูปแบบ)
+    # ----------------------------------------------------
+    energy_cost = re.search(r'(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
+    if energy_cost: result["L"] = float(energy_cost.group(1).replace(",", ""))
+    
+    ft = re.search(r'ค่า\s*Ft.*?=\s*[-\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)', text, re.I)
+    if not ft:  # ดักสำรองกรณีรูปแบบข้อความ Ft แตกต่างออกไป
+        ft = re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I)
     if ft: result["O"] = float(ft.group(1).replace(",", ""))
     
     pf = re.search(r'(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s*Factor).*?([\d,]+\.\d+)', text, re.I)
@@ -58,6 +123,9 @@ def extract_exact_pea_bill(file_obj):
 
     return result
 
+# ----------------------------------------------------
+# ส่วนที่ 4: Streamlit UI & Excel Mapping (โครงสร้างเดิมของคุณ)
+# ----------------------------------------------------
 uploaded_files = st.file_uploader("อัปโหลดไฟล์บิล PDF", type=["pdf"], accept_multiple_files=True)
 template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้นแบบ", type=["xlsx"])
 
@@ -72,7 +140,7 @@ if uploaded_files:
             wb = openpyxl.load_workbook(template_file)
             ws = wb.active 
 
-            # 1. ฟังก์ชัน write_number (กำหนดไว้ในนี้เพื่อให้เรียกใช้ได้ง่าย)
+            # 1. ฟังก์ชัน write_number (กำหนดไว้ในนี้ตามแบบของคุณ)
             def write_number(ws, cell_pos, value):
                 val_str = str(value).strip()
                 if val_str in ["0", "0.0", "None", ""]:
@@ -88,7 +156,7 @@ if uploaded_files:
                     except:
                         ws[cell_pos] = "-"
 
-            # 2. ส่วนการวนลูปกรอกข้อมูล
+            # 2. ส่วนการวนลูปกรอกข้อมูลลงแถวที่ 20 เป็นต้นไป
             for row_idx in range(20, ws.max_row + 1):
                 excel_key = str(ws[f'A{row_idx}'].value).strip()
                 if excel_key in ["None", ""]: continue
