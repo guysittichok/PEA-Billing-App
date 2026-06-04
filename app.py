@@ -19,7 +19,7 @@ def extract_exact_pea_bill(file_obj):
         "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
-    # เช็กเงื่อนไขประเภทบิล (คงเดิม)
+    # เช็กเงื่อนไขประเภทบิล (คงเดิมของคุณ)
     is_tou = any(re.search(r''+k+r'.*?(?:กว|หน่วย|หนอรย|หนวย)', text, re.I) for k in ["Peak", "Off Peak", "Partial Peak"])
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
@@ -65,28 +65,31 @@ def extract_exact_pea_bill(file_obj):
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
-    # [ปรับปรุง Logic ใหม่ตามวิธีแนะแนวซ่อมพิกัด I และ L] -> รูปแบบที่ 3 และ 4
+    # [ซ่อมเฉพาะจุดสกัดค่า L บิลอัตราปกติ] -> รูปแบบที่ 3 และ 4
     # ========================================================
     elif not is_tou:
         lines = text.split('\n')
         
-        # 1. หาจำนวนหน่วย (ช่อง I) ดึงจากตัวเลขหน้าคำว่า "หน่วย" เสมอเพื่อความชัวร์
+        # 1. หาจำนวนหน่วย (ช่อง I) -> แบบเดิมที่สกัด 1620.00 และ 2094.00 ได้ถูกต้องแล้ว
         unit_match = re.search(r'([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text)
         if unit_match:
             result["I"] = float(unit_match.group(1).replace(",", ""))
 
-        # 2. หาจำนวนเงินค่าไฟฟ้าฐาน (ช่อง L) ดึงจากตัวเลขที่อยู่หลัง "หน่วย อัตรา" ในบรรทัดพลังงานไฟฟ้า
-        for line in lines:
-            if "พลังงานไฟฟ้า" in line:
-                # ค้นหาตัวเลขทั้งหมดในบรรทัดพลังงานไฟฟ้า
-                nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
-                if nums_in_line:
-                    # โดยปกติถ้าอ่านครบ ตัวเลขสุดท้ายจะเป็นจำนวนเงินค่าไฟฟ้าฐาน
-                    result["L"] = float(nums_in_line[-1].replace(",", ""))
-                    
-                    # ตัวดักสำรอง: ถ้าตัวเลขสุดท้ายดันไปเท่ากับตัวเลขหน่วย (แปลว่าคอมพิวเตอร์อ่านเงินบาทไม่เจอในบรรทัดนั้น)
-                    if result["L"] == result["I"] and len(nums_in_line) >= 2:
-                        result["L"] = float(nums_in_line[-2].replace(",", ""))
+        # 2. เจาะจงหาค่าไฟฟ้าฐาน (ช่อง L) โดยหาจากโครงสร้าง: [เลขหน่วย] [คำว่าหน่วย] [เลขอัตรา] [เลขเงินค่าไฟฟ้าฐาน]
+        # วิธีนี้จะบล็อกไม่ให้มันกระโดดไปดึงเลขค่าบริการบรรทัดอื่น
+        base_cost_pattern = r'(?:หน่วย|หนอรย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)'
+        base_cost_match = re.search(base_cost_pattern, text)
+        if base_cost_match:
+            result["L"] = float(base_cost_match.group(1).replace(",", ""))
+        else:
+            # สำรองถ้าข้อความบรรทัดพลังงานไฟฟ้าดึงเลขมาต่อกัน
+            for line in lines:
+                if "พลังงานไฟฟ้า" in line:
+                    nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
+                    if len(nums_in_line) >= 4:
+                        result["L"] = float(nums_in_line[3].replace(",", ""))
+                    elif len(nums_in_line) == 3:
+                        result["L"] = float(nums_in_line[2].replace(",", ""))
 
         # 3. จัดการโครงสร้างเพิ่มเติมเฉพาะรูปแบบที่ 3 (ถ้ามีพลังไฟฟ้าสูงสุด)
         if "พลังไฟฟ้าสูงสุด" in text:
@@ -94,7 +97,6 @@ def extract_exact_pea_bill(file_obj):
                 if "พลังไฟฟ้าสูงสุด" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
-                        # ดึงเลข กว. ลงช่อง C
                         if len(nums) >= 3:
                             result["C"] = float(nums[2].replace(",", ""))
                         else:
