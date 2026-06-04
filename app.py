@@ -19,8 +19,8 @@ def extract_exact_pea_bill(file_obj):
         "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
-    # เช็กเงื่อนไขประเภทบิล
-    is_tou = any(re.search(r''+k+r'\s+[\d,]+\.\d+\s+กว', text, re.I) for k in ["Peak", "Off Peak", "Partial Peak"])
+    # เช็กเงื่อนไขประเภทบิล (ใช้แบบเดิมที่คุณรันผ่าน)
+    is_tou = any(re.search(r''+k+r'.*?(?:กว|หน่วย|หนอรย|หนวย)', text, re.I) for k in ["Peak", "Off Peak", "Partial Peak"])
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
@@ -65,7 +65,7 @@ def extract_exact_pea_bill(file_obj):
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
-    # [แก้ไขเพิ่มเติม] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ) ให้ดึงจำนวนเงินลงช่อง L ให้ถูกต้องชัวร์
+    # [แก้ไขเฉพาะจุด] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ)
     # ========================================================
     elif not is_tou:
         lines = text.split('\n')
@@ -73,7 +73,7 @@ def extract_exact_pea_bill(file_obj):
         # รูปแบบที่ 3: มีคำว่า "พลังไฟฟ้าสูงสุด"
         if "พลังไฟฟ้าสูงสุด" in text:
             for line in lines:
-                # ดึงเลข กว. (4.00) จากคอลัมน์จำนวนที่ใช้ลงช่อง C
+                # ดึงเลข กว. (4.00) ลงช่อง C จากคอลัมน์จำนวนที่ใช้ (ตัวเลขตัวสุดท้ายของกลุ่มแรก)
                 if "พลังไฟฟ้าสูงสุด" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
@@ -82,7 +82,7 @@ def extract_exact_pea_bill(file_obj):
                         else:
                             result["C"] = float(nums[-1].replace(",", ""))
                 
-                # ดึงเลขหน่วย (2010.00) และ ดึงจำนวนเงินค่าไฟฟ้าฐาน (7856.29) ลงช่อง L 
+                # ดึงเลขหน่วย (2010.00) ลงช่อง I และค่าเงินค่าไฟฟ้าฐานลงช่อง L ล่วงหน้าตรงนี้เลย
                 if "พลังงานไฟฟ้า" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
@@ -91,8 +91,8 @@ def extract_exact_pea_bill(file_obj):
                         else:
                             result["I"] = float(nums[0].replace(",", ""))
                         
-                        # บิลรูปแบบนี้ จำนวนเงินค่าไฟฟ้าฐาน จะอยู่เป็นลำดับสุดท้ายในบรรทัดพลังงานไฟฟ้า (ตัวเลขตัวที่ 4 หรือ ตัวสุดท้าย)
-                        result["L"] = float(nums[-1].replace(",", ""))  # 7856.29 ลง L ตรงๆ
+                        # เพิ่มพิกัด: เอาตัวเลขสุดท้ายของบรรทัดพลังงานไฟฟ้า (ค่าเงินค่าไฟฟ้าฐาน เช่น 7856.29) มาใส่ช่อง L
+                        result["L"] = float(nums[-1].replace(",", ""))
 
             # ดึงค่าบาทของพลังไฟฟ้าสูงสุดลงช่อง F
             demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
@@ -137,7 +137,7 @@ def extract_exact_pea_bill(file_obj):
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # 3. Energy Cost, Ft, Total (L, O, P, Q) -> ส่วนท้ายนี้ใช้ร่วมกันทุกแบบ
-    # ดักไว้ว่าถ้าเป็นบิลประเภทอื่น ค่อยใช้ Logic เดิมหาช่อง L แต่ถ้าดึงจากข้อ 3 (is_normal) ด้านบนมาแล้ว จะไม่ทับค่ากัน
+    # ดักตรรกะไว้ว่า ถ้าช่อง L ถูกใส่ค่ามาจากเงื่อนไขรูปแบบที่ 3/4 ด้านบนแล้ว จะข้ามไปเลย ไม่ให้ทับค่ากัน
     if result["L"] == 0.0:
         energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
         if not energy: 
