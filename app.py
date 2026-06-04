@@ -10,8 +10,7 @@ st.title("PEA Bill Extraction System")
 
 def extract_exact_pea_bill(file_obj):
     with pdfplumber.open(file_obj) as pdf:
-        text_lines = [page.extract_text() for page in pdf.pages if page.extract_text()]
-        text = "\n".join(text_lines)
+        text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
 
     result = {
         "ชื่อไฟล์": file_obj.name,
@@ -20,15 +19,8 @@ def extract_exact_pea_bill(file_obj):
         "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
-    # --- วิธีเช็กประเภทบิลแบบใหม่: เช็กจากข้อความ 15 บรรทัดแรกของบิลเท่านั้นเพื่อตัดปัญหาคำอธิบายท้ายบิลกวนระบบ ---
-    lines = text.split('\n')
-    top_zone_text = "\n".join(lines[:15])  # ดึงมาแค่โซนหัวบิล
-    
-    # ถ้าหัวบิลมีคำว่า อัตราปกติ แสดงว่าเป็นรูปแบบ 3 หรือ 4 แน่นอน (ไม่ใช่ TOU)
-    is_normal_rate = "อัตราปกติ" in top_zone_text or "ปกติ" in top_zone_text
-    
-    # ถ้าไม่ใช่ อัตราปกติ ค่อยเช็กว่าเป็น TOU หรือไม่
-    is_tou = not is_normal_rate and any(k in top_zone_text for k in ["Peak", "Off Peak", "TOU"])
+    # เช็กเงื่อนไขประเภทบิล
+    is_tou = any(re.search(r''+k+r'.*?(?:กว|หน่วย|หนอรย|หนวย)', text, re.I) for k in ["Peak", "Off Peak", "Partial Peak"])
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
@@ -44,6 +36,7 @@ def extract_exact_pea_bill(file_obj):
         if op_demand:
             result["D"] = float(op_demand.group(1).replace(",", ""))
 
+        lines = text.split('\n')
         energy_section_started = False
         for line in lines:
             if "พลังงานไฟฟ้า" in line:
@@ -72,21 +65,25 @@ def extract_exact_pea_bill(file_obj):
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
-    # [บังคับเข้าที่นี่] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ)
+    # [แก้ไขคอลัมน์ให้ถูกต้อง] -> รูปแบบที่ 3 และ 4 (บิลอัตราปกติ)
     # ========================================================
-    elif is_normal_rate or not is_tou:
+    elif not is_tou:
+        lines = text.split('\n')
+        
         # รูปแบบที่ 3: มีคำว่า "พลังไฟฟ้าสูงสุด"
         if "พลังไฟฟ้าสูงสุด" in text:
             for line in lines:
+                # แก้ไข: ดึงเลข กว. (4.00) มาใส่ช่อง C ตรงๆ ห้ามไปใส่ช่องอื่น
                 if "พลังไฟฟ้าสูงสุด" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
-                        result["C"] = float(nums[0].replace(",", ""))  # 4.00 ลงช่อง C
+                        result["C"] = float(nums[0].replace(",", ""))
                 
+                # แก้ไข: ดึงเลขหน่วย (2010.00) มาใส่ช่อง I ตรงๆ ห้ามหลุดไปช่องอื่น
                 if "พลังงานไฟฟ้า" in line:
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if nums:
-                        result["I"] = float(nums[0].replace(",", ""))  # 2010.00 ลงช่อง I
+                        result["I"] = float(nums[0].replace(",", ""))
 
             # ดึงค่าบาทของพลังไฟฟ้าสูงสุดลงช่อง F
             demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
@@ -132,7 +129,8 @@ def extract_exact_pea_bill(file_obj):
         energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
     if energy: 
         try:
-            if "อัตราปกติ" in top_zone_text or "ปกติ" in top_zone_text:
+            # ดักเคสถ้าเข้าเงื่อนไขรูปแบบที่ 3/4 เพื่อให้ดึงค่าเงินค่าไฟฟ้าฐานลงช่อง L ได้ถูกต้อง ไม่ตีกัน
+            if not is_tou:
                 base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
                 if base_cost_match:
                     result["L"] = float(base_cost_match.group(1).replace(",", ""))
