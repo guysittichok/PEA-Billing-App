@@ -24,7 +24,7 @@ def extract_exact_pea_bill(file_obj):
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
-    # [ปรับปรุงเฉพาะค่า K] -> รูปแบบที่ 2 (บิลแบบ P, OP, H)
+    # [แก้ไขเจาะจงเฉพาะส่วนสกัดค่า K] -> รูปแบบที่ 2 (บิลแบบ P, OP, H)
     # ========================================================
     if is_tou and has_h_mode:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
@@ -56,18 +56,22 @@ def extract_exact_pea_bill(file_obj):
                 result["I"] = float(nums[-1].replace(",", ""))
             elif "OP" in line and "หน่วย" in line: 
                 result["J"] = float(nums[-1].replace(",", ""))
-            # 🌟 จุดปรับปรุงแก้ไข: ป้องกันไม่ให้โดนเลขประวัติการใช้ไฟฟ้าขวาสุดดักหน้า
+            # 🌟 จุดปรับปรุงลูปที่ 1: ล้างข้อความขวาออกก่อนสแกนหาค่า K
             elif ("H " in line or "Holiday" in line) and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]): 
-                # ตัดข้อความตั้งแต่พิกัดวันที่ของตารางประวัติออกไป เพื่อดูเฉพาะโซนจำนวนที่ใช้จริงฝั่งซ้าย
                 clean_h_line = re.split(r'\d{2}/\d{2}/\d{2,4}', line)[0]
                 nums_in_h_line = re.findall(r"([\d,]+\.\d+)", clean_h_line)
                 if nums_in_h_line:
                     result["K"] = float(nums_in_h_line[-1].replace(",", ""))
                 
+        # 🌟 จุดปรับปรุงที่ 2 (ก๊อกสองเดิม): สแกนหาเจาะจงเฉพาะบรรทัดที่คลีนตัดประวัติขวาสุดออกแล้วเท่านั้น
         if result["K"] == 0.0:
-            h_unit_match = re.search(r'(?:H|Holiday)\s+([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text, re.I)
-            if h_unit_match:
-                result["K"] = float(h_unit_match.group(1).replace(",", ""))
+            for line in lines:
+                if re.search(r'(?:H|Holiday)', line, re.I) and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+                    clean_h_line2 = re.split(r'\d{2}/\d{2}/\d{2,4}', line)[0]
+                    h_unit_match = re.search(r'(?:H|Holiday)\s+([\d,]+\.\d+)', clean_h_line2, re.I)
+                    if h_unit_match:
+                        result["K"] = float(h_unit_match.group(1).replace(",", ""))
+                        break
 
     # ========================================================
     # [คงเดิมไว้] -> รูปแบบที่ 3 และ 4
