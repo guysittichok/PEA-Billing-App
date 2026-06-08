@@ -24,7 +24,7 @@ def extract_exact_pea_bill(file_obj):
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
-    # [คงเดิมไว้] -> รูปแบบที่ 2 (บิลแบบ P, OP, H)
+    # [ปรับปรุงเฉพาะค่า K] -> รูปแบบที่ 2 (บิลแบบ P, OP, H)
     # ========================================================
     if is_tou and has_h_mode:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
@@ -56,8 +56,13 @@ def extract_exact_pea_bill(file_obj):
                 result["I"] = float(nums[-1].replace(",", ""))
             elif "OP" in line and "หน่วย" in line: 
                 result["J"] = float(nums[-1].replace(",", ""))
-            elif ("H " in line or "Holiday" in line) and "หน่วย" in line: 
-                result["K"] = float(nums[-1].replace(",", ""))
+            # 🌟 จุดปรับปรุงแก้ไข: ป้องกันไม่ให้โดนเลขประวัติการใช้ไฟฟ้าขวาสุดดักหน้า
+            elif ("H " in line or "Holiday" in line) and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]): 
+                # ตัดข้อความตั้งแต่พิกัดวันที่ของตารางประวัติออกไป เพื่อดูเฉพาะโซนจำนวนที่ใช้จริงฝั่งซ้าย
+                clean_h_line = re.split(r'\d{2}/\d{2}/\d{2,4}', line)[0]
+                nums_in_h_line = re.findall(r"([\d,]+\.\d+)", clean_h_line)
+                if nums_in_h_line:
+                    result["K"] = float(nums_in_h_line[-1].replace(",", ""))
                 
         if result["K"] == 0.0:
             h_unit_match = re.search(r'(?:H|Holiday)\s+([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text, re.I)
@@ -166,16 +171,14 @@ def extract_exact_pea_bill(file_obj):
         ft = re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I)
     if ft: result["O"] = float(ft.group(1).replace(",", ""))
     
-    # 🌟 [เพิ่มเข้าบล็อกพิเศษนี้ตามที่คุณสิทธิโชคสอน] -> สำหรับหาค่าเงินของ Column P
-    result["P"] = 0.0  # บังคับค่าเริ่มต้นของช่อง P เป็น 0.0 เอาไว้เสมอตามเงื่อนไขหากไม่พบ
+    # [คงเดิมไว้] -> สำหรับหาค่าเงินของ Column P
+    result["P"] = 0.0  
     for line in text.split('\n'):
-        # ค้นหาคำสำคัญกลุ่ม "ค่าเพาเวอร์แฟคเตอร์" ทั้งแบบถูกและแบบภาษาเพี้ยน
         if any(k in line for k in ["ค่าเพาเวอร์แฟคเตอร", "เพาเวอร์แฟคเตอร์", "Power Factor", "คาเพาเวอร์แฟคเตอร"]):
             nums_in_pf_line = re.findall(r"([\d,]+\.\d+)", line)
             if nums_in_pf_line:
-                # ดึงตัวเลขเงินบาทตัวสุดท้ายขวาสุดของบรรทัดนั้นมาใส่ช่อง P ทันที
                 result["P"] = float(nums_in_pf_line[-1].replace(",", ""))
-                break # เจอเป้าหมายล็อกค่าแล้วหยุดวนลูปทำงานทันที
+                break 
 
     total_match = re.search(r'รวมเงินค่าไฟฟ้า\s*\(Sub Total\)\s*([\d,]+\.\d+)', text, re.I)
     if total_match:
