@@ -65,24 +65,22 @@ def extract_exact_pea_bill(file_obj):
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
-    # [ซ่อมเฉพาะจุดสกัดค่า L บิลอัตราปกติ] -> รูปแบบที่ 3 และ 4
+    # [คงเดิมไว้] -> รูปแบบที่ 3 และ 4
     # ========================================================
     elif not is_tou:
         lines = text.split('\n')
         
-        # 1. หาจำนวนหน่วย (ช่อง I) -> แบบเดิมที่สกัด 1620.00 และ 2094.00 ได้ถูกต้องแล้ว
+        # 1. หาจำนวนหน่วย (ช่อง I)
         unit_match = re.search(r'([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text)
         if unit_match:
             result["I"] = float(unit_match.group(1).replace(",", ""))
 
-        # 2. เจาะจงหาค่าไฟฟ้าฐาน (ช่อง L) โดยหาจากโครงสร้าง: [เลขหน่วย] [คำว่าหน่วย] [เลขอัตรา] [เลขเงินค่าไฟฟ้าฐาน]
-        # วิธีนี้จะบล็อกไม่ให้มันกระโดดไปดึงเลขค่าบริการบรรทัดอื่น
+        # 2. เจาะจงหาค่าไฟฟ้าฐาน (ช่อง L)
         base_cost_pattern = r'(?:หน่วย|หนอรย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)'
         base_cost_match = re.search(base_cost_pattern, text)
         if base_cost_match:
             result["L"] = float(base_cost_match.group(1).replace(",", ""))
         else:
-            # สำรองถ้าข้อความบรรทัดพลังงานไฟฟ้าดึงเลขมาต่อกัน
             for line in lines:
                 if "พลังงานไฟฟ้า" in line:
                     nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
@@ -131,6 +129,18 @@ def extract_exact_pea_bill(file_obj):
             if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
             elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
+
+    # ========================================================
+    # 🌟 [ส่วนต่อยอดเพิ่มเงื่อนไขสำหรับ Column M โดยไม่ยุ่งกับโค้ดเก่า]
+    # ========================================================
+    for line in text.split('\n'):
+        # ตรวจสอบว่าในบรรทัดนั้นมีคำว่า Off Peak และ คำกลุ่ม "หน่วย/หนอรย/หนวย" อยู่ร่วมกันหรือไม่
+        if "off" in line.lower() and "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+            nums_in_op_line = re.findall(r"([\d,]+\.\d+)", line)
+            if nums_in_op_line:
+                # ดึงตัวเลขค่าเงินตัวสุดท้ายของบรรทัดมาเก็บไว้ในช่อง M
+                result["M"] = float(nums_in_op_line[-1].replace(",", ""))
+                break # เมื่อเจอแล้วให้หยุดการวนลูปหาทันที
 
     # ========================================================
     # ส่วนท้ายหาค่า Ft, Total (L, O, P, Q) -> คงเดิมไว้
