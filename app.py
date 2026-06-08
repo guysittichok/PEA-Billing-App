@@ -56,14 +56,14 @@ def extract_exact_pea_bill(file_obj):
                 result["I"] = float(nums[-1].replace(",", ""))
             elif "OP" in line and "หน่วย" in line: 
                 result["J"] = float(nums[-1].replace(",", ""))
-            # 🌟 จุดปรับปรุงลูปที่ 1: ล้างข้อความขวาออกก่อนสแกนหาค่า K
+            # 🌟 จุดปรับปรุงลูปที่ 1: ล้างข้อความขวาออกก่อนสแกนหาค่า K และเก็บลงตัวแปรโดยตรง
             elif ("H " in line or "Holiday" in line) and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]): 
                 clean_h_line = re.split(r'\d{2}/\d{2}/\d{2,4}', line)[0]
                 nums_in_h_line = re.findall(r"([\d,]+\.\d+)", clean_h_line)
                 if nums_in_h_line:
                     result["K"] = float(nums_in_h_line[-1].replace(",", ""))
                 
-        # 🌟 จุดปรับปรุงที่ 2 (ก๊อกสองเดิม): สแกนหาเจาะจงเฉพาะบรรทัดที่คลีนตัดประวัติขวาสุดออกแล้วเท่านั้น
+        # 🌟 จุดปรับปรุงที่ 2 (ก๊อกสองเดิม): สแกนแบบตัดประวัติขวาสุดออกแล้วเท่านั้น
         if result["K"] == 0.0:
             for line in lines:
                 if re.search(r'(?:H|Holiday)', line, re.I) and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
@@ -132,12 +132,14 @@ def extract_exact_pea_bill(file_obj):
         if op:
             result["E"] = float(op.group(1).replace(",", ""))
 
-        for line in text.split('\n'):
-            nums = re.findall(r"([\d,]+\.\d+)", line)
-            if not nums: continue
-            if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
-            elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
-            elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
+        # 🌟 จุดที่มีการป้องกัน: เพิ่มเงื่อนไข if result["K"] == 0.0 เพื่อไม่ให้รันเขียนทับค่า K ที่สกัดถูกต้องแล้ว
+        if result["K"] == 0.0:
+            for line in text.split('\n'):
+                nums = re.findall(r"([\d,]+\.\d+)", line)
+                if not nums: continue
+                if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
+                elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
+                elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
     # [คงเดิมไว้] -> โครงสร้างพัฒนาเพิ่มเติมที่สมบูรณ์แล้วของ Column M
