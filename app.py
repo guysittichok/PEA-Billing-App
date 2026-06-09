@@ -146,7 +146,28 @@ def extract_exact_pea_bill(file_obj):
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
-    # ส่วนท้ายหาค่า Ft, Total (L, O, P, Q) -> [แก้ไขจุดสกัดค่า P]
+    # 🌟 [แก้ไขตรรกะดึง Column M - ค่าบริการรายเดือน ให้แม่นยำทุกรูปแบบบิล]
+    # ========================================================
+    for line in text.split('\n'):
+        # ค้นหาคำว่า ค่าบริการ, ค่าบริการรายเดือน หรือ Service Charge
+        if any(k in line.lower() for k in ["ค่าบริการ", "คาบริการ", "service charge"]):
+            nums_in_m_line = re.findall(r"([\d,]+\.\d+)", line)
+            if nums_in_m_line:
+                result["M"] = float(nums_in_m_line[-1].replace(",", ""))
+                break
+                
+    # ถ้ายังไม่ได้ค่า M (ดักจับบิล TOU รูปแบบดั้งเดิมตามเงื่อนไขเมื่อวาน)
+    if result["M"] == 0.0:
+        for line in text.split('\n'):
+            if "off" in line.lower() and "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+                clean_line = re.split(r'\d{2}/\d{2}/\d{2,4}', line)[0]
+                nums_in_op_line = re.findall(r"([\d,]+\.\d+)", clean_line)
+                if nums_in_op_line:
+                    result["M"] = float(nums_in_op_line[-1].replace(",", ""))
+                    break
+
+    # ========================================================
+    # ส่วนท้ายหาค่า Ft, Total (L, O, P, Q) -> [คงเดิมไว้]
     # ========================================================
     if result["L"] == 0.0:
         energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
@@ -236,14 +257,4 @@ if uploaded_files:
                     write_number(ws, f'M{row_idx}', row['M'])
                     write_number(ws, f'N{row_idx}', row['N'])
                     write_number(ws, f'O{row_idx}', row['O'])
-                    write_number(ws, f'P{row_idx}', row['P'])
-                    write_number(ws, f'Q{row_idx}', row['Q'])
-            
-            output = BytesIO()
-            wb.save(output)
-            output.seek(0)
-            st.success("กรอกข้อมูลครบทุกช่องแล้ว!")
-            st.download_button("📥 ดาวน์โหลด Excel", output, "Updated_PEA_Bill.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            
-        except Exception as e:
-            st.error(f"เกิดข้อผิดพลาด: {e}")
+                    write_
