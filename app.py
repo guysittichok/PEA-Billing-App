@@ -88,21 +88,16 @@ def extract_exact_pea_bill(file_obj):
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
                 
-                # 🎯 ปรับปรุงช่อง K (Holiday): หลบเลขตัวแรก (ที่มักเป็น 46.927) แล้วดึงค่าหน่วยสุทธิ
-                elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line: 
-                    # ดักจับกลุ่มตัวเลขด้วย Regex เพื่อความแม่นยำสูงขึ้น
-                    h_nums = re.findall(r"(?:H|Holiday)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", line, re.I)
-                    if h_nums:
-                        result["K"] = float(h_nums[0][2].replace(",", ""))
+                # 🎯 [จุดที่แก้ไข] ปรับปรุงช่อง K (Holiday): เพื่อดึงเลข 38,640.00 จากแถวพลังงานไฟฟ้า H ให้ถูกต้อง
+                elif (line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line) and "กว" not in line.lower(): 
+                    # เช็กให้มั่นใจว่าเป็นแถวพลังงานไฟฟ้าด้านล่าง (ไม่มีคำว่า กว. หรือค่าความต้องการพลังงาน)
+                    if len(nums) >= 3:
+                        # โครงสร้างปกติของพลังงานไฟฟ้า: เลขอ่านครั้งหลัง (3237.620) | เลขอ่านครั้งก่อน (3218.300) | จำนวนที่ใช้ (38640.00)
+                        result["K"] = float(nums[2].replace(",", ""))
+                    elif len(nums) == 2:
+                        result["K"] = float(nums[1].replace(",", ""))
                     else:
-                        # หากโครงสร้างโดนบีบอัด ให้ใช้ตรรกะคัดกรองตามจำนวนตัวเลขที่เจอในบรรทัด
-                        if len(nums) >= 3:
-                            result["K"] = float(nums[2].replace(",", ""))
-                        elif len(nums) == 2:
-                            # ถ้าเจอแค่ 2 ตัว (เช่น เลขอัตรา และเลขหน่วย) ให้คว้าตัวเลขตัวที่ 2 เพื่อหลบเลขอัตราตัวแรก
-                            result["K"] = float(nums[1].replace(",", ""))
-                        else:
-                            result["K"] = float(nums[0].replace(",", ""))
+                        result["K"] = float(nums[0].replace(",", ""))
                     
         # ดักจับสำรองกรณีหลุดลูป
         if result["K"] == 0.0:
