@@ -88,13 +88,13 @@ def extract_exact_pea_bill(file_obj):
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
                 
-                # 🎯 [แก้ไขจุดพังสำเร็จ] เจาะจงสแกนหาแถว H ตัวล่างสุดในโซนพลังงานไฟฟ้า 
-                # ล็อกเงื่อนไขว่าต้องดึงตัวเลขตัวสุดท้ายของบรรทัด (nums[-1]) เพื่อให้ได้ค่า 38,640.00 คอลัมน์ 3 ชัวร์ๆ ไม่หลุดไปเอาเลขท่อนบน
-                elif (line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line) and result["I"] > 0: 
+                # 🎯 [แก้ไขจุดล็อกสำเร็จ] เช็กว่าเป็นแถว H ที่อยู่ในโซนตารางด้านล่างชัวร์ๆ 
+                # ปลดล็อกเงื่อนไข result["I"] ออก แล้วดึงเลขตัวสุดท้าย (nums[-1]) เพื่อให้ได้ค่า 38,640.00 คอลัมน์ 3 เป๊ะๆ
+                elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line: 
                     result["K"] = float(nums[-1].replace(",", ""))
                     
         # ดักจับสำรองกรณีฉุกเฉิน
-        if result["K"] == 0.0 or result["K"] < 1000:
+        if result["K"] == 0.0:
             h_unit_match = re.search(r'พลังงานไฟฟ้า.*\n.*\n.*(?:H|Holiday)\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
             if h_unit_match:
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
