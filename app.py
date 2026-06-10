@@ -75,7 +75,7 @@ def extract_exact_pea_bill(file_obj):
             if h_fallback: result["K"] = float(h_fallback.group(2).replace(",", ""))
 
     # ========================================================
-    # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดา ไม่ใช่ TOU) -> ดึงกลับมาครบแล้วครับ!
+    # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดา ไม่ใช่ TOU)
     # ========================================================
     elif not is_tou:
         lines = text.split('\n')
@@ -105,7 +105,7 @@ def extract_exact_pea_bill(file_obj):
             if demand_cost_match: result["F"] = float(demand_cost_match.group(1).replace(",", ""))
             
     # ========================================================
-    # บล็อกรูปแบบที่ 1 (บิลดั้งเดิม/บิล TOU ทั่วไป) -> ดึงกลับมาครบแล้วครับ!
+    # บล็อกรูปแบบที่ 1 (บิลดั้งเดิม/บิล TOU ทั่วไป)
     # ========================================================
     else:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
@@ -129,7 +129,7 @@ def extract_exact_pea_bill(file_obj):
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
-    # ส่วนดักจับค่าท้ายบิลทั่วไป (M, L, O, P, Q) -> คืนชีพส่วนที่หายทั้งหมดครับ!
+    # ส่วนดักจับค่าท้ายบิลทั่วไป (M, L, O, P, Q)
     # ========================================================
     # ดึงค่าช่อง M (Off Peak หน่วยสะสมซ้ายสุด)
     for line in text.split('\n'):
@@ -142,7 +142,7 @@ def extract_exact_pea_bill(file_obj):
 
     # ดึงค่าฐาน Ft และ ยอดรวมค่าไฟพื้นฐาน (L, O, Q)
     if result["L"] == 0.0:
-        energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
+        energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)', text)
         if not energy: energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
         if energy: 
             try:
@@ -182,6 +182,11 @@ if uploaded_files:
     data = [extract_exact_pea_bill(f) for f in uploaded_files]
     all_cols = ["ชื่อไฟล์", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]
     df = pd.DataFrame(data, columns=all_cols)
+    
+    # 🎯 [จุดแก้ไขเพิ่มเติม] สั่งให้ในหน้าตารางเว็บพ่นเครื่องหมายขีด "-" ในช่อง O และ Q ไปเลยเพื่อไม่ให้สับสน
+    df["O"] = "-"
+    df["Q"] = "-"
+    
     st.data_editor(df, use_container_width=True)
 
     if template_file and st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
@@ -191,7 +196,7 @@ if uploaded_files:
 
             def write_number(ws, cell_pos, value):
                 val_str = str(value).strip()
-                if val_str in ["0", "0.0", "None", ""]:
+                if val_str in ["0", "0.0", "None", "", "-", "0"]:
                     ws[cell_pos] = "-"
                 else:
                     try:
@@ -208,11 +213,12 @@ if uploaded_files:
                 excel_key = str(ws[f'A{row_idx}'].value).strip()
                 if excel_key in ["None", ""]: continue
                 
+                # ค้นหาแถวที่ชื่อไฟล์ตรงกันใน DataFrame
                 match_row = df[df['ชื่อไฟล์'].apply(lambda x: excel_key in str(x))]
                 
                 if not match_row.empty:
                     row = match_row.iloc[0]
-                    # เขียนคอลัมน์ที่จำเป็นลง Excel เหมือนเดิมทั้งหมด
+                    # เขียนคอลัมน์ที่จำเป็นลง Excel (ส่วน O และ Q จะถูกข้ามไปอย่างปลอดภัย)
                     write_number(ws, f'C{row_idx}', row['C'])
                     write_number(ws, f'D{row_idx}', row['D'])
                     write_number(ws, f'E{row_idx}', row['E'])
@@ -225,7 +231,7 @@ if uploaded_files:
                     write_number(ws, f'L{row_idx}', row['L'])
                     write_number(ws, f'M{row_idx}', row['M'])
                     write_number(ws, f'N{row_idx}', row['N'])
-                    # 🎯 ปล่อยคอลัมน์ O และ Q ว่างไว้ ไม่เขียนทับ เพื่อให้สูตรใน Excel ทำงาน
+                    # 🔒 ล็อกเว้นว่างคอลัมน์ O และ Q ไว้ร้อยเปอร์เซ็นต์ ไม่เอาค่าคงที่ไปเขียนทับสูตรเดิม
                     write_number(ws, f'P{row_idx}', row['P'])
             
             output = BytesIO()
