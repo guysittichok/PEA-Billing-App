@@ -27,31 +27,45 @@ def extract_exact_pea_bill(file_obj):
     # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H) -> เข้าทำงานได้แล้ว 100%
     # ========================================================
     if is_tou and has_h_mode:
-        # ดึงช่อง C และ F จากแถว Peak ท่อนบน
-        peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-        if peak:
-            result["C"] = float(peak.group(1).replace(",", ""))
-            result["F"] = float(peak.group(2).replace(",", ""))
+        # ดึงช่อง F จากตารางเงิน Peak ฝั่งขวาก่อน
+        peak_money = re.search(r'Peak\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+        if peak_money:
+            result["F"] = float(peak_money.group(1).replace(",", ""))
 
-        # 🎯 [แก้ไขจุดพังของ Column D] เจาะจงหาแถว OP ในตารางกิโลวัตต์ท่อนบนฝั่งซ้าย ไม่ให้หลุดไปตารางขวา
         lines = text.split('\n')
-        for line in lines:
-            if "OP" in line and "กว" in line:
-                nums_in_op = re.findall(r"([\d,]+\.\d+)", line)
-                if nums_in_op:
-                    # ดึงเลขตัวแรกสุดของแถวฝั่งซ้าย (เช่น 426.00) มาลงช่อง D ตรงๆ ไม่ซ้ำกับ E
-                    result["D"] = float(nums_in_op[0].replace(",", ""))
-                    break
-
-        # ดึงช่อง E จากแถว H ท่อนบน
         energy_section_started = False
+        
+        # วิ่งลูปสแกนหา Demand ท่อนบน (C, D, E) แยกตามลำดับคอลัมน์ "จำนวนที่ใช้"
         for line in lines:
             if "พลังงานไฟฟ้า" in line:
                 energy_section_started = True
-            if not energy_section_started and (line.strip().startswith("H ") or " H " in line):
-                nums_in_h = re.findall(r"([\d,]+\.\d+)", line)
-                if len(nums_in_h) >= 3:
-                    result["E"] = float(nums_in_h[2].replace(",", ""))
+            
+            # ทำงานเฉพาะโซนท่อนบน (รายละเอียดการไฟฟ้า) เท่านั้น
+            if not energy_section_started:
+                nums = re.findall(r"([\d,]+\.\d+)", line)
+                if not nums: continue
+                
+                # 🎯 แก้ไขคอลัมน์ช่อง C: ดึงเลขตัวที่ 3 (จำนวนที่ใช้) ของแถว Peak ไม่ให้เอาเลขมิเตอร์มา
+                if "Peak" in line and "กว" in line and "Off" not in line:
+                    if len(nums) >= 3:
+                        result["C"] = float(nums[2].replace(",", ""))
+                    else:
+                        result["C"] = float(nums[0].replace(",", ""))
+                
+                # 🎯 แก้ไขคอลัมน์ช่อง D: ดึงเลขตัวที่ 3 (จำนวนที่ใช้) ของแถว OP ซึ่งจะได้ 426.00 เป๊ะๆ ไม่เอา 43.849 แล้ว!
+                elif "OP" in line and "กว" in line:
+                    if len(nums) >= 3:
+                        result["D"] = float(nums[2].replace(",", ""))
+                    else:
+                        result["D"] = float(nums[0].replace(",", ""))
+                
+                # ดึงช่อง E จากแถว H ท่อนบน (ตัวที่ 3 เหมือนกัน)
+                elif line.strip().startswith("H ") or " H " in line:
+                    if "กว" in line or len(nums) >= 3:
+                        if len(nums) >= 3:
+                            result["E"] = float(nums[2].replace(",", ""))
+                        else:
+                            result["E"] = float(nums[0].replace(",", ""))
         
         result["G"] = 0.0
         result["H"] = 0.0
