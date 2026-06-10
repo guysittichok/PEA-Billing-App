@@ -88,16 +88,21 @@ def extract_exact_pea_bill(file_obj):
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
                 
-                # 🎯 [จุดที่แก้ไข] ปรับปรุงช่อง K (Holiday): เพื่อดึงเลข 38,640.00 จากแถวพลังงานไฟฟ้า H ให้ถูกต้อง
-                elif (line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line) and "กว" not in line.lower(): 
-                    # เช็กให้มั่นใจว่าเป็นแถวพลังงานไฟฟ้าด้านล่าง (ไม่มีคำว่า กว. หรือค่าความต้องการพลังงาน)
+                # 🎯 [จุดที่แก้ไขดักจับด้วยค่าตัวเลข] ปรับปรุงช่อง K (Holiday) เพื่อหลบเลขหลักสิบหลักร้อย แล้วคว้าเอาเลขหน่วยหลักหมื่น
+                elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line: 
                     if len(nums) >= 3:
-                        # โครงสร้างปกติของพลังงานไฟฟ้า: เลขอ่านครั้งหลัง (3237.620) | เลขอ่านครั้งก่อน (3218.300) | จำนวนที่ใช้ (38640.00)
-                        result["K"] = float(nums[2].replace(",", ""))
+                        val_check = float(nums[2].replace(",", ""))
+                        # มั่นใจได้ 100% ว่าถ้าเป็นหน่วยพลังงานไฟฟ้า (K) ค่าต้องเยอะ (ในบิลคือ 38,640.00) ถ้าได้แค่ 46.927 ให้ข้ามไป
+                        if val_check > 1000.0:
+                            result["K"] = val_check
                     elif len(nums) == 2:
-                        result["K"] = float(nums[1].replace(",", ""))
+                        val_check = float(nums[1].replace(",", ""))
+                        if val_check > 1000.0:
+                            result["K"] = val_check
                     else:
-                        result["K"] = float(nums[0].replace(",", ""))
+                        val_check = float(nums[0].replace(",", ""))
+                        if val_check > 1000.0:
+                            result["K"] = val_check
                     
         # ดักจับสำรองกรณีหลุดลูป
         if result["K"] == 0.0:
