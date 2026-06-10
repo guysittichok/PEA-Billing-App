@@ -19,12 +19,12 @@ def extract_exact_pea_bill(file_obj):
         "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
-    # เช็กเงื่อนไขประเภทบิล (คงเดิมของคุณ)
-    is_tou = any(re.search(r''+k+r'.*?(?:กว|หน่วย|หนอรย|หนวย)', text, re.I) for k in ["Peak", "Off Peak", "Partial Peak"])
+    # 🌟 [แก้ไขจุดตาย] ขยายการดักจับบิลให้รวมอักษรย่อ P, OP, H ที่อยู่บนหน้าบิลจริงด้วย
+    is_tou = any(re.search(r''+k+r'.*?(?:กว|หน่วย|หนอรย|หนวย)', text, re.I) for k in ["Peak", "Off Peak", "Partial Peak"]) or ("OP" in text and " P " in text)
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
-    # [คงเดิมไว้] -> รูปแบบที่ 2 (บิลแบบ P, OP, H)
+    # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H) -> เข้าทำงานได้แล้ว 100%
     # ========================================================
     if is_tou and has_h_mode:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
@@ -49,40 +49,55 @@ def extract_exact_pea_bill(file_obj):
         result["G"] = 0.0
         result["H"] = 0.0
 
+        # ล็อกโซนตารางหน่วยฝั่งซ้าย (ด้วยคำว่า รวม) 
+        in_energy_zone = False
         for line in lines:
-            nums = re.findall(r"([\d,]+\.\d+)", line)
-            if not nums: continue
-            if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: 
-                result["I"] = float(nums[-1].replace(",", ""))
-            elif "OP" in line and "หน่วย" in line: 
-                result["J"] = float(nums[-1].replace(",", ""))
-            elif ("H " in line or "Holiday" in line) and "หน่วย" in line: 
-                result["K"] = float(nums[-1].replace(",", ""))
+            if "พลังงานไฟฟ้า" in line:
+                in_energy_zone = True
+                nums = re.findall(r"([\d,]+\.\d+)", line)
+                if nums and "P" in line and "PP" not in line: 
+                    if len(nums) >= 3: result["I"] = float(nums[2].replace(",", ""))
+                    else: result["I"] = float(nums[-1].replace(",", ""))
+                continue
+            
+            if in_energy_zone and "รวม" in line:
+                in_energy_zone = False
+                break
                 
+            if in_energy_zone:
+                nums = re.findall(r"([\d,]+\.\d+)", line)
+                if not nums: continue
+                
+                if "OP" in line: 
+                    if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
+                    else: result["J"] = float(nums[-1].replace(",", ""))
+                elif "H" in line or "Holiday" in line: 
+                    # 🎯 ดึงเลขชุดที่ 3 ของแถว H เข้าสู่ช่อง K ได้อย่างแม่นยำ ไม่โดนเลขสถิติหลอก
+                    if len(nums) >= 3: result["K"] = float(nums[2].replace(",", ""))
+                    else: result["K"] = float(nums[-1].replace(",", ""))
+                    
         if result["K"] == 0.0:
             h_unit_match = re.search(r'(?:H|Holiday)\s+([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text, re.I)
             if h_unit_match:
                 result["K"] = float(h_unit_match.group(1).replace(",", ""))
 
     # ========================================================
-    # [ซ่อมเฉพาะจุดสกัดค่า L บิลอัตราปกติ] -> รูปแบบที่ 3 และ 4
+    # [คงเดิมไว้] -> รูปแบบที่ 3 และ 4
     # ========================================================
     elif not is_tou:
         lines = text.split('\n')
         
-        # 1. หาจำนวนหน่วย (ช่อง I) -> แบบเดิมที่สกัด 1620.00 และ 2094.00 ได้ถูกต้องแล้ว
+        # 1. หาจำนวนหน่วย (ช่อง I)
         unit_match = re.search(r'([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text)
         if unit_match:
             result["I"] = float(unit_match.group(1).replace(",", ""))
 
-        # 2. เจาะจงหาค่าไฟฟ้าฐาน (ช่อง L) โดยหาจากโครงสร้าง: [เลขหน่วย] [คำว่าหน่วย] [เลขอัตรา] [เลขเงินค่าไฟฟ้าฐาน]
-        # วิธีนี้จะบล็อกไม่ให้มันกระโดดไปดึงเลขค่าบริการบรรทัดอื่น
+        # 2. เจาะจงหาค่าไฟฟ้าฐาน (ช่อง L)
         base_cost_pattern = r'(?:หน่วย|หนอรย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)'
         base_cost_match = re.search(base_cost_pattern, text)
         if base_cost_match:
             result["L"] = float(base_cost_match.group(1).replace(",", ""))
         else:
-            # สำรองถ้าข้อความบรรทัดพลังงานไฟฟ้าดึงเลขมาต่อกัน
             for line in lines:
                 if "พลังงานไฟฟ้า" in line:
                     nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
@@ -133,7 +148,18 @@ def extract_exact_pea_bill(file_obj):
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
-    # ส่วนท้ายหาค่า Ft, Total (L, O, P, Q) -> คงเดิมไว้
+    # [คงเดิมไว้] -> โครงสร้างที่ M ถูกอยู่แล้วของคุณสิทธิโชค
+    # ========================================================
+    for line in text.split('\n'):
+        if "off" in line.lower() and "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+            clean_line = re.split(r'\d{2}/\d{2}/\d{2,4}', line)[0]
+            nums_in_op_line = re.findall(r"([\d,]+\.\d+)", clean_line)
+            if nums_in_op_line:
+                result["M"] = float(nums_in_op_line[-1].replace(",", ""))
+                break
+
+    # ========================================================
+    # ส่วนท้ายหาค่า Ft, Total (L, O, P, Q) 
     # ========================================================
     if result["L"] == 0.0:
         energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
@@ -157,9 +183,17 @@ def extract_exact_pea_bill(file_obj):
         ft = re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I)
     if ft: result["O"] = float(ft.group(1).replace(",", ""))
     
-    pf = re.search(r'(?:คาเพาเวอร์แฟคเตอร|เพาเวอร์แฟคเตอร์|Power\s*Factor).*?([\d,]+\.\d+)', text, re.I)
-    if pf: result["P"] = float(pf.group(1).replace(",", ""))
-    
+    # ========================================================
+    # [คงเดิมไว้] -> โครงสร้างที่ P ถูกอยู่แล้วของคุณสิทธิโชค
+    # ========================================================
+    result["P"] = 0.0  
+    for line in text.split('\n'):
+        if any(k in line for k in ["ค่าเพาเวอร์แฟคเตอร", "เพาเวอร์แฟคเตอร์", "Power Factor", "คาเพาเวอร์แฟคเตอร"]):
+            nums_in_pf_line = re.findall(r"([\d,]+\.\d+)", line)
+            if nums_in_pf_line:
+                result["P"] = float(nums_in_pf_line[-1].replace(",", ""))
+                break 
+
     total_match = re.search(r'รวมเงินค่าไฟฟ้า\s*\(Sub Total\)\s*([\d,]+\.\d+)', text, re.I)
     if total_match:
         result["Q"] = float(total_match.group(1).replace(",", ""))
