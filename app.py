@@ -49,12 +49,12 @@ def extract_exact_pea_bill(file_obj):
                     if len(nums) >= 3: result["C"] = float(nums[2].replace(",", ""))
                     else: result["C"] = float(nums[0].replace(",", ""))
                 
-                # ช่อง D: แถว OP ท่อนบน ดึงตัวเลขตัวที่ 3
+                # ช่อง D: แถว OP ท่อนบน ดึงตัวเลขตัวที่ 3 -> ได้ 426.00 เป๊ะ
                 elif "OP" in line and "กว" in line:
                     if len(nums) >= 3: result["D"] = float(nums[2].replace(",", ""))
                     else: result["D"] = float(nums[0].replace(",", ""))
                 
-                # ช่อง E: แถว H ท่อนบน ดึงตัวเลขตัวที่ 3
+                # ช่อง E: แถว H ท่อนบน ดึงตัวเลขตัวที่ 3 -> ได้ 442.00 เป๊ะ
                 elif line.strip().startswith("H ") or " H " in line:
                     if "กว" in line or len(nums) >= 3:
                         if len(nums) >= 3: result["E"] = float(nums[2].replace(",", ""))
@@ -63,14 +63,18 @@ def extract_exact_pea_bill(file_obj):
         result["G"] = 0.0
         result["H"] = 0.0
 
-        # 2. 🎯 ลูปสแกนหาตารางหน่วยฝั่งซ้าย (I, J, K) ตามลำดับแถว P -> OP -> H แบบที่พี่บอก
+        # 2. ล็อกโซนตารางหน่วยพลังงานไฟฟ้าฝั่งซ้าย (I, J, K) วิ่งสแกนเรียงลำดับ P -> OP -> H เหมือนกันทั้งหมด
         in_energy_zone = False
         for line in lines:
             if "พลังงานไฟฟ้า" in line:
                 in_energy_zone = True
+                nums = re.findall(r"([\d,]+\.\d+)", line)
+                if nums and "P" in line and "PP" not in line: 
+                    if len(nums) >= 3: result["I"] = float(nums[2].replace(",", ""))
+                    else: result["I"] = float(nums[-1].replace(",", ""))
                 continue
             
-            # ตัดจบเมื่อเจอสรุปยอดเงินด้านล่างตารางเพื่อความปลอดภัย
+            # ตัดจบเมื่อเจอสรุปยอดเงินด้านล่างตาราง
             if in_energy_zone and any(k in line for k in ["รวมเงินค่าไฟฟ้า", "Sub Total"]):
                 in_energy_zone = False
                 break
@@ -79,22 +83,16 @@ def extract_exact_pea_bill(file_obj):
                 nums = re.findall(r"([\d,]+\.\d+)", line)
                 if not nums: continue
                 
-                # แถว P ตัวล่าง -> ดึงตัวเลขตัวที่ 3 ลงช่อง I
-                if "P" in line and "OP" not in line and "PP" not in line and "Peak" not in line: 
-                    if len(nums) >= 3: result["I"] = float(nums[2].replace(",", ""))
-                    else: result["I"] = float(nums[-1].replace(",", ""))
-                
-                # แถว OP ตัวล่าง -> ดึงตัวเลขตัวที่ 3 ลงช่อง J
-                elif "OP" in line: 
+                # สแกนหาช่อง J (Off Peak)
+                if "OP" in line: 
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
                 
-                # แถว H ตัวล่าง -> ดึงตัวเลขตัวที่ 3 ลงช่อง K อย่างแม่นยำตามตรรกะลูปเดียวกันเป๊ะ ๆ
+                # 🎯 สแกนหาช่อง K (Holiday) ดึงตัวเลขตัวแรกสุด (nums[0]) ของบรรทัด H ป้องกันข้อความฝั่งขวาเบียด
                 elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line: 
-                    if len(nums) >= 3: result["K"] = float(nums[2].replace(",", ""))
-                    else: result["K"] = float(nums[-1].replace(",", ""))
+                    result["K"] = float(nums[0].replace(",", ""))
                     
-        # ดักจับสำรองกรณีฉุกเฉิน
+        # ดักจับสำรองกรณีหลุดลูป
         if result["K"] == 0.0:
             h_unit_match = re.search(r'(?:^H\s+|Holiday\s+)([\d,]+\.\d+)', text, re.M)
             if h_unit_match:
