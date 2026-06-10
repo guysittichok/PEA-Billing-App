@@ -88,23 +88,25 @@ def extract_exact_pea_bill(file_obj):
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
                 
-                # 🎯 [จุดที่แก้ไขดักจับด้วยค่าตัวเลข] ปรับปรุงช่อง K (Holiday) เพื่อหลบเลขหลักสิบหลักร้อย แล้วคว้าเอาเลขหน่วยหลักหมื่น
-                elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line: 
-                    if len(nums) >= 3:
-                        val_check = float(nums[2].replace(",", ""))
-                        # มั่นใจได้ 100% ว่าถ้าเป็นหน่วยพลังงานไฟฟ้า (K) ค่าต้องเยอะ (ในบิลคือ 38,640.00) ถ้าได้แค่ 46.927 ให้ข้ามไป
-                        if val_check > 1000.0:
-                            result["K"] = val_check
-                    elif len(nums) == 2:
-                        val_check = float(nums[1].replace(",", ""))
-                        if val_check > 1000.0:
-                            result["K"] = val_check
-                    else:
-                        val_check = float(nums[0].replace(",", ""))
-                        if val_check > 1000.0:
-                            result["K"] = val_check
+                # 🎯 ช่อง K (Holiday) เอา Logic เก่าออกไปเลย เพื่อไม่ให้มันสแกนแถวผิดพลาด
+                # (เราจะใช้ตรรกะแบบค้นหาตรงจุดด้านล่างแทนเพื่อความแม่นยำสูงสุด)
+                elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line:
+                    pass
                     
-        # ดักจับสำรองกรณีหลุดลูป
+        # 🎯 [จุดที่แก้ไขเด็ดขาดสำหรับช่อง K] 
+        # ค้นหาข้อความแบบเจาะจงโครงสร้างกลุ่มตาราง "พลังงานไฟฟ้าท่อนล่าง" 
+        # โดยมองหาแนวโน้ม: OP -> ตัวเลขสามชุด -> แล้วตามด้วยบรรทัด H -> ตัวเลขสามชุด
+        # Pattern นี้จะข้ามกลุ่มกิโลวัตต์สูงสุดท่อนบนอย่างสิ้นเชิง และดึงเอาค่า 38,640.00 ได้แน่นอน
+        h_target_match = re.search(r'OP\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+(?:H|Holiday)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text, re.I)
+        if h_target_match:
+            result["K"] = float(h_target_match.group(3).replace(",", ""))
+        else:
+            # สำรองกรณีข้อความขึ้นบรรทัดใหม่สลับกัน (แต่ล็อกให้อยู่ในโซนพลังงานไฟฟ้า)
+            h_alt_match = re.search(r'(?:พลังงานไฟฟ้า|หน่วย).*?(?:H|Holiday)\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.DOTALL | re.I)
+            if h_alt_match:
+                result["K"] = float(h_alt_match.group(1).replace(",", ""))
+
+        # ดักจับสำรองกรณีสุดท้ายจริงๆ
         if result["K"] == 0.0:
             h_unit_match = re.search(r'(?:^H\s+|Holiday\s+)([\d,]+\.\d+)', text, re.M)
             if h_unit_match:
