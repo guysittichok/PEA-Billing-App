@@ -23,7 +23,7 @@ def extract_exact_pea_bill(file_obj):
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
-    # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H) -> เจาะจงแก้ตรงนี้ให้จบ
+    # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H)
     # ========================================================
     if is_tou and has_h_mode:
         # ดึงช่อง F จากตารางเงิน Peak ฝั่งขวา
@@ -62,35 +62,27 @@ def extract_exact_pea_bill(file_obj):
         result["G"] = 0.0
         result["H"] = 0.0
 
-        # 2. แกะหน่วยพลังงานไฟฟ้าฝั่งซ้าย (I, J, K) ด้วยวิธีหาขอบเขตโซนที่แม่นยำสูง
-        # หาดัชนีบรรทัดเริ่มต้นและสิ้นสุดของโซนหน่วยพลังงานไฟฟ้า
-        start_idx = -1
-        end_idx = -1
-        for idx, line in enumerate(lines):
-            if "พลังงานไฟฟ้า" in line and start_idx == -1:
-                start_idx = idx
-            if start_idx != -1 and ("รวม" in line or "รวมเงิน" in line or "Sub Total" in line):
-                end_idx = idx
-                break
+        # 2. ใช้ Regex ดึงค่าหน่วยพลังงานไฟฟ้าฝั่งซ้าย (I, J, K) ตรง ๆ จากโครงสร้างตารางข้อความ
+        # หาบรรทัดที่มีข้อความ "พลังงานไฟฟ้า" แล้วดึงตัวเลขตัวที่ 3 ทันทีสำหรับช่อง I (P)
+        p_row = re.search(r'พลังงานไฟฟ้า.*?(?:P\s+|Peak\s+)?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text, re.I)
+        if p_row:
+            result["I"] = float(p_row.group(3).replace(",", ""))
+        
+        # หาบรรทัดที่มี OP ในตารางท่อนล่างเพื่อลงช่อง J (OP)
+        op_row = re.search(r'(?:OP|Off\s*Peak).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text, re.I)
+        if op_row:
+            result["J"] = float(op_row.group(3).replace(",", ""))
 
-        if start_idx != -1 and end_idx != -1:
-            energy_lines = lines[start_idx:end_idx]
-            for e_line in energy_lines:
-                nums = re.findall(r"([\d,]+\.\d+)", e_line)
-                if not nums: continue
-                
-                # ช่อง I (P - ล่าง): มักจะอยู่ในบรรทัดเดียวกับคำว่า พลังงานไฟฟ้า หรือบรรทัดถัดมาที่มี P
-                if ("พลังงานไฟฟ้า" in e_line or "P" in e_line) and "OP" not in e_line and "H" not in e_line:
-                    if len(nums) >= 3: result["I"] = float(nums[2].replace(",", ""))
-                    elif len(nums) == 1: result["I"] = float(nums[0].replace(",", ""))
-                
-                # ช่อง J (OP - ล่าง)
-                elif "OP" in e_line:
-                    if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
-                
-                # ช่อง K (H - ล่าง): ดึงตัวเลขตัวที่ 3 ตรง ๆ ป้องกันการโดนรบกวนจากภายนอก
-                elif e_line.strip().startswith("H ") or e_line.strip() == "H" or " H " in e_line:
-                    if len(nums) >= 3: result["K"] = float(nums[2].replace(",", ""))
+        # หาบรรทัดที่มี H หรือ Holiday ในตารางท่อนล่างเพื่อลงช่อง K (H)
+        h_row = re.search(r'(?:[^A-Za-z]H\s+|Holiday\s+).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text, re.I)
+        if h_row:
+            result["K"] = float(h_row.group(3).replace(",", ""))
+        else:
+            # กรณีที่ pdfplumber ดึงบรรทัด H ออกมาแบบไม่สมบูรณ์ (โดนตัดข้อความเหลือแค่กลุ่มตัวเลขเดี่ยว ๆ ก่อนคำว่ารวม)
+            # ดักจับโดยหาตัวเลข 3 ตัวสุดท้ายที่อยู่ก่อนข้อความสรุปยอดเงิน
+            fallback_h = re.search(r'([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s*\n.*?(?:รวมเงิน|รวมค่าไฟฟ้า|Sub\s*Total)', text, re.I)
+            if fallback_h:
+                result["K"] = float(fallback_h.group(3).replace(",", ""))
 
     # ========================================================
     # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดาที่ไม่ใช่ TOU)
@@ -127,29 +119,31 @@ def extract_exact_pea_bill(file_obj):
                 result["F"] = float(demand_cost_match.group(1).replace(",", ""))
 
     # ========================================================
-    # บล็อกรูปแบบที่ 1 (บิลดั้งเดิมสไตล์อื่น) -> ทำงานเมื่อไม่เข้าเงื่อนไขรูปแบบ 2 เท่านั้น
+    # บล็อกรูปแบบที่ 1 (บิลดั้งเดิมสไตล์อื่น) -> ทำงานเฉพาะเมื่อไม่เข้าข่ายรูปแบบ 2 เท่านั้น
     # ========================================================
     else:
-        peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-        if peak:
-            result["C"] = float(peak.group(1).replace(",", ""))
-            result["F"] = float(peak.group(2).replace(",", ""))
+        # เช็กเพื่อความชัวร์ไม่ให้เขียนทับค่าหากเป็นบิล P, OP, H
+        if result["K"] == 0.0:
+            peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+            if peak:
+                result["C"] = float(peak.group(1).replace(",", ""))
+                result["F"] = float(peak.group(2).replace(",", ""))
 
-        pp = re.search(r'Partial\s+Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-        if pp:
-            result["D"] = float(pp.group(1).replace(",", ""))
-            result["G"] = float(pp.group(2).replace(",", ""))
+            pp = re.search(r'Partial\s+Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+            if pp:
+                result["D"] = float(pp.group(1).replace(",", ""))
+                result["G"] = float(pp.group(2).replace(",", ""))
 
-        op = re.search(r'Off\s+Peak\s+([\d,]+\.\d+)\s+กว', text, re.I)
-        if op:
-            result["E"] = float(op.group(1).replace(",", ""))
+            op = re.search(r'Off\s+Peak\s+([\d,]+\.\d+)\s+กว', text, re.I)
+            if op:
+                result["E"] = float(op.group(1).replace(",", ""))
 
-        for line in text.split('\n'):
-            nums = re.findall(r"([\d,]+\.\d+)", line)
-            if not nums: continue
-            if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
-            elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
-            elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
+            for line in text.split('\n'):
+                nums = re.findall(r"([\d,]+\.\d+)", line)
+                if not nums: continue
+                if "พลังงานไฟฟ้า" in line and "P" in line and "PP" not in line: result["I"] = float(nums[-1].replace(",", ""))
+                elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
+                elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
     # โครงสร้างคอลลัมน์คงเหลือ M, L, O, P, Q (ดึงค่าปกติ)
