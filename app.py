@@ -83,14 +83,16 @@ def extract_exact_pea_bill(file_obj):
                 nums = re.findall(r"([\d,]+\.\d+)", line)
                 if not nums: continue
                 
-                # สแกนหาช่อง J (Off Peak)
+                # สแกนหาช่อง J (Off Peak) -> ใช้ตัวเลขตัวที่ 3
                 if "OP" in line: 
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
                 
-                # 🎯 สแกนหาช่อง K (Holiday) ดึงตัวเลขตัวแรกสุด (nums[0]) ของบรรทัด H ป้องกันข้อความฝั่งขวาเบียด
+                # 🎯 แก้ไขช่อง K (Holiday): เปลี่ยนมาใช้ตรรกะดึงตัวเลขตัวที่ 3 (nums[2]) 
+                # เพื่อให้เหมือนกับช่อง I และ J ป้องกันการไปคว้าโดนตัวเลขอื่นฝั่งขวา
                 elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line: 
-                    result["K"] = float(nums[0].replace(",", ""))
+                    if len(nums) >= 3: result["K"] = float(nums[2].replace(",", ""))
+                    else: result["K"] = float(nums[0].replace(",", ""))
                     
         # ดักจับสำรองกรณีหลุดลูป
         if result["K"] == 0.0:
