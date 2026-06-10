@@ -83,16 +83,26 @@ def extract_exact_pea_bill(file_obj):
                 nums = re.findall(r"([\d,]+\.\d+)", line)
                 if not nums: continue
                 
-                # สแกนหาช่อง J (Off Peak) -> ใช้ตัวเลขตัวที่ 3
+                # สแกนหาช่อง J (Off Peak)
                 if "OP" in line: 
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
                 
-                # 🎯 แก้ไขช่อง K (Holiday): เปลี่ยนมาใช้ตรรกะดึงตัวเลขตัวที่ 3 (nums[2]) 
-                # เพื่อให้เหมือนกับช่อง I และ J ป้องกันการไปคว้าโดนตัวเลขอื่นฝั่งขวา
+                # 🎯 ปรับปรุงช่อง K (Holiday): หลบเลขตัวแรก (ที่มักเป็น 46.927) แล้วดึงค่าหน่วยสุทธิ
                 elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line: 
-                    if len(nums) >= 3: result["K"] = float(nums[2].replace(",", ""))
-                    else: result["K"] = float(nums[0].replace(",", ""))
+                    # ดักจับกลุ่มตัวเลขด้วย Regex เพื่อความแม่นยำสูงขึ้น
+                    h_nums = re.findall(r"(?:H|Holiday)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", line, re.I)
+                    if h_nums:
+                        result["K"] = float(h_nums[0][2].replace(",", ""))
+                    else:
+                        # หากโครงสร้างโดนบีบอัด ให้ใช้ตรรกะคัดกรองตามจำนวนตัวเลขที่เจอในบรรทัด
+                        if len(nums) >= 3:
+                            result["K"] = float(nums[2].replace(",", ""))
+                        elif len(nums) == 2:
+                            # ถ้าเจอแค่ 2 ตัว (เช่น เลขอัตรา และเลขหน่วย) ให้คว้าตัวเลขตัวที่ 2 เพื่อหลบเลขอัตราตัวแรก
+                            result["K"] = float(nums[1].replace(",", ""))
+                        else:
+                            result["K"] = float(nums[0].replace(",", ""))
                     
         # ดักจับสำรองกรณีหลุดลูป
         if result["K"] == 0.0:
