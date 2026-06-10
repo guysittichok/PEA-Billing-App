@@ -19,7 +19,7 @@ def extract_exact_pea_bill(file_obj):
         "O": 0.0, "P": 0.0, "Q": 0.0
     }
 
-    # 🌟 [แก้ไขจุดตาย] ขยายการดักจับบิลให้รวมอักษรย่อ P, OP, H ที่อยู่บนหน้าบิลจริงด้วย
+    # 🌟 [คงเดิมไว้] ขยายการดักจับบิลให้รวมอักษรย่อ P, OP, H ที่อยู่บนหน้าบิลจริงด้วย
     is_tou = any(re.search(r''+k+r'.*?(?:กว|หน่วย|หนอรย|หนวย)', text, re.I) for k in ["Peak", "Off Peak", "Partial Peak"]) or ("OP" in text and " P " in text)
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
@@ -27,16 +27,23 @@ def extract_exact_pea_bill(file_obj):
     # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H) -> เข้าทำงานได้แล้ว 100%
     # ========================================================
     if is_tou and has_h_mode:
+        # ดึงช่อง C และ F จากแถว Peak ท่อนบน
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if peak:
             result["C"] = float(peak.group(1).replace(",", ""))
             result["F"] = float(peak.group(2).replace(",", ""))
 
-        op_demand = re.search(r'Off\s+Peak\s+([\d,]+\.\d+)\s+กว', text, re.I)
-        if op_demand:
-            result["D"] = float(op_demand.group(1).replace(",", ""))
-
+        # 🎯 [แก้ไขจุดพังของ Column D] เจาะจงหาแถว OP ในตารางกิโลวัตต์ท่อนบนฝั่งซ้าย ไม่ให้หลุดไปตารางขวา
         lines = text.split('\n')
+        for line in lines:
+            if "OP" in line and "กว" in line:
+                nums_in_op = re.findall(r"([\d,]+\.\d+)", line)
+                if nums_in_op:
+                    # ดึงเลขตัวแรกสุดของแถวฝั่งซ้าย (เช่น 426.00) มาลงช่อง D ตรงๆ ไม่ซ้ำกับ E
+                    result["D"] = float(nums_in_op[0].replace(",", ""))
+                    break
+
+        # ดึงช่อง E จากแถว H ท่อนบน
         energy_section_started = False
         for line in lines:
             if "พลังงานไฟฟ้า" in line:
@@ -72,7 +79,6 @@ def extract_exact_pea_bill(file_obj):
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
                 elif "H" in line or "Holiday" in line: 
-                    # 🎯 ดึงเลขชุดที่ 3 ของแถว H เข้าสู่ช่อง K ได้อย่างแม่นยำ ไม่โดนเลขสถิติหลอก
                     if len(nums) >= 3: result["K"] = float(nums[2].replace(",", ""))
                     else: result["K"] = float(nums[-1].replace(",", ""))
                     
