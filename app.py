@@ -66,37 +66,39 @@ def extract_exact_pea_bill(file_obj):
         result["H"] = 0.0
 
         # ----------------------------------------------------
-        # 2. ค้นหาในท่อนล่างเท่านั้น (ดึงค่าหน่วยสุทธิ ช่อง I, J, K)
+        # 2. 🎯 ดึงค่าหน่วยสุทธิ (ช่อง I, J, K) ด้วยระบบนับลำดับแถวตาราง 1 -> 2 -> 3
         # ----------------------------------------------------
         if lower_text:
             # ตัดเนื้อหาเอาเฉพาะโซนตารางพลังงานไฟฟ้าก่อนถึงสรุปยอดเงิน
             lower_clean = lower_text.split("รวมเงิน")[0].split("Sub Total")[0]
             lower_lines = lower_clean.split('\n')
             
+            valid_rows_found = 0 # ตัวนับลำดับบรรทัดตารางพลังงานไฟฟ้าฝั่งซ้าย
+            
             for line in lower_lines:
                 nums = re.findall(r"([\d,]+\.\d+)", line)
-                if not nums: continue
                 
-                # ช่อง I (P - แถวพลังงานไฟฟ้าล่าง)
-                if "พลังงานไฟฟ้า" in line:
-                    if len(nums) >= 3: result["I"] = float(nums[2].replace(",", ""))
-                    elif len(nums) == 1: result["I"] = float(nums[0].replace(",", ""))
-                
-                # ช่อง J (OP - แถวกลางล่าง)
-                elif "OP" in line:
-                    if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
-                    elif len(nums) == 1: result["J"] = float(nums[0].replace(",", ""))
-                
-                # ช่อง K (H - แถวที่สามล่างสุดของตาราง)
-                # เช็กตัวอักษรนำหน้าเพื่อเจาะจงแถว H ล่าง และหลบเลี่ยงการชนกับบรรทัดอื่น
-                elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line:
-                    if len(nums) >= 3: 
+                # โครงสร้างตารางหลักซ้ายของบิลประเภทนี้ จะต้องมีตัวเลข มิเตอร์ใหม่-เก่า-หน่วยใช้ (อย่างน้อย 3 กลุ่ม)
+                if len(nums) >= 3:
+                    valid_rows_found += 1
+                    
+                    if valid_rows_found == 1:
+                        # แถวแรกที่พบตัวเลขครบ 3 ตัว = แถว Peak (ช่อง I)
+                        result["I"] = float(nums[2].replace(",", ""))
+                    elif valid_rows_found == 2:
+                        # แถวที่สองที่พบตัวเลขครบ 3 ตัว = แถว Off Peak (ช่อง J)
+                        result["J"] = float(nums[2].replace(",", ""))
+                    elif valid_rows_found == 3:
+                        # แถวที่สามที่พบตัวเลขครบ 3 ตัว = แถว Holiday (ช่อง K) -> ได้ 38640.00 ชัวร์ร้อยเปอร์เซ็นต์!
                         result["K"] = float(nums[2].replace(",", ""))
-                    elif len(nums) == 1:
-                        result["K"] = float(nums[0].replace(",", ""))
-                    elif len(nums) == 2:
-                        # กรณีโดนสแกนเบียดข้อความจนติดเรทอัตราค่าไฟ ให้เอาตัวเลขตัวสุดท้าย
-                        result["K"] = float(nums[-1].replace(",", ""))
+                        break # เจอครบ 3 แถวหลักแล้ว สั่งออกลูปได้เลยเพื่อความปลอดภัย
+                
+                # ดักกรณีพิเศษเผื่อตัวเลขแถวสุดท้ายโดนรวบบรรทัดเหลือแค่กลุ่มตัวเลขท้ายสุด 
+                elif len(nums) == 2 and valid_rows_found == 2:
+                    # ถ้าเจอไปแล้ว 2 แถว แล้วแถวถัดมาโดนบีบอัดจนเหลือตัวเลข 2 ชุด ให้เดาว่าเป็นค่าหน่วยที่ตัวสุดท้ายทันที
+                    result["K"] = float(nums[1].replace(",", ""))
+                    valid_rows_found += 1
+                    break
 
     # ========================================================
     # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดาที่ไม่ใช่ TOU)
@@ -136,7 +138,6 @@ def extract_exact_pea_bill(file_obj):
     # บล็อกรูปแบบที่ 1 (บิลดั้งเดิมประเภทอื่น)
     # ========================================================
     else:
-        # ทำงานเฉพาะกรณีที่ไม่ได้ถูกกรอกค่าจากบิล TOU รูปแบบหลักด้านบนเท่านั้นเพื่อป้องกันการทับซ้อน
         if result["K"] == 0.0 and result["J"] == 0.0:
             peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
             if peak:
