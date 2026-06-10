@@ -37,7 +37,7 @@ def extract_exact_pea_bill(file_obj):
         h_money_match = re.search(r'(?:H|Holiday)\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if h_money_match: result["H"] = float(h_money_match.group(1).replace(",", ""))
 
-        # ตัดแบ่งโซนข้อความเป็น ท่อนบน และ ท่อนล่าง โดยใช้คำว่า "พลังงานไฟฟ้า" เป็นตัวแบ่ง
+        # ตัดแบ่งโซนข้อความเป็น ท่อนบน และ ท่อนล่าง สำหรับค่าหน่วย/ดีมานด์ทั่วไป
         parts = text.split("พลังงานไฟฟ้า")
         demand_part = parts[0]
         energy_part = parts[1] if len(parts) > 1 else text 
@@ -73,16 +73,6 @@ def extract_exact_pea_bill(file_obj):
         if result["K"] == 0.0:
             h_fallback = re.search(r'OP.*?([\d,]+\.\d+)\s+(?:H|Holiday)\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', energy_part, re.DOTALL | re.I)
             if h_fallback: result["K"] = float(h_fallback.group(2).replace(",", ""))
-
-        # 🎯 [จุดแก้ไขสําคัญ] ปรับปรุงการเจาะหาเงินค่าพลังงานไฟฟ้าพื้นฐาน (ช่อง L)
-        # มองหาบรรทัด "Peak ... หน่วย" แล้วเจาะเอาตัวเลขก้อนสุดท้าย (ซึ่งก็คือจำนวนเงินบาท)
-        for line in energy_part.split('\n'):
-            if "Peak" in line and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
-                nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
-                if len(nums_in_line) >= 2:
-                    # เลือกตัวเลขก้อนสุดท้ายของบรรทัด (จำนวนเงินบาท เช่น 574,350.00)
-                    result["L"] = float(nums_in_line[-1].replace(",", ""))
-                    break
 
     # ========================================================
     # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดา ไม่ใช่ TOU)
@@ -139,6 +129,21 @@ def extract_exact_pea_bill(file_obj):
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
+    # 🎯 [จุดแก้ไขถาวร] ลอจิกหาค่าเงินพลังงานไฟฟ้าพื้นฐาน (ช่อง L) สำหรับบิล TOU ทุกรูปแบบ
+    # ========================================================
+    if is_tou:
+        for line in text.split('\n'):
+            # ค้นหาบรรทัด "Peak [หน่วย] หน่วย"
+            if "Peak" in line and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+                # ตรวจสอบเพื่อให้มั่นใจว่าไม่ใช่บรรทัดหน่วย Demand (กว.)
+                if "กว" not in line:
+                    nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
+                    if len(nums_in_line) >= 2:
+                        # เจาะเอาตัวเลขจำนวนเงินก้อนสุดท้ายของบรรทัดเสมอ เช่น 574,350.00 หรือ 735,027.55
+                        result["L"] = float(nums_in_line[-1].replace(",", ""))
+                        break
+
+    # ========================================================
     # ส่วนดักจับค่าท้ายบิลทั่วไป (M, L, O, P, Q)
     # ========================================================
     # ดึงค่าช่อง M (Off Peak หน่วยสะสมซ้ายสุด)
@@ -151,16 +156,13 @@ def extract_exact_pea_bill(file_obj):
                 break
 
     # เก็บตกกรณีค่า L ยังคงเป็น 0.0 ในบิลทั่วไป
-    if result["L"] == 0.0:
+    if result["L"] == 0.0 and not is_tou:
         energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)', text)
         if not energy: energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
         if energy: 
             try:
-                if not is_tou:
-                    base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
-                    result["L"] = float(base_cost_match.group(1).replace(",", "")) if base_cost_match else float(energy.group(1).replace(",", ""))
-                else:
-                    result["L"] = float(energy.group(2).replace(",", ""))
+                base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
+                result["L"] = float(base_cost_match.group(1).replace(",", "")) if base_cost_match else float(energy.group(1).replace(",", ""))
             except:
                 result["L"] = float(energy.group(1).replace(",", ""))
     
@@ -236,10 +238,9 @@ if uploaded_files:
                     write_number(ws, f'I{row_idx}', row['I'])
                     write_number(ws, f'J{row_idx}', row['J'])
                     write_number(ws, f'K{row_idx}', row['K'])
-                    write_number(ws, f'L{row_idx}', row['L']) # 🎯 จะได้มูลค่าเงินท้ายแถว (574,350.00) ไปเขียนลง Excel อย่างถูกต้อง
+                    write_number(ws, f'L{row_idx}', row['L']) # 🔒 มั่นใจได้เลยว่าค่าก้อนเงินที่ถูกต้องจะถูกเขียนเข้า Excel เสมอ
                     write_number(ws, f'M{row_idx}', row['M'])
                     write_number(ws, f'N{row_idx}', row['N'])
-                    # เว้นว่างคอลัมน์ O และ Q ไว้ร้อยเปอร์เซ็นต์ ไม่เขียนทับสูตรเดิมตามตกลง
                     write_number(ws, f'P{row_idx}', row['P'])
             
             output = BytesIO()
