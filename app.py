@@ -23,7 +23,7 @@ def extract_exact_pea_bill(file_obj):
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
-    # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H)
+    # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H) -> แก้ไขแบ่งโซนเด็ดขาด
     # ========================================================
     if is_tou and has_h_mode:
         # ดึงช่อง F จากตารางเงิน Peak ฝั่งขวา
@@ -31,58 +31,69 @@ def extract_exact_pea_bill(file_obj):
         if peak_money:
             result["F"] = float(peak_money.group(1).replace(",", ""))
 
-        lines = text.split('\n')
-        energy_section_started = False
+        # 🎯 ผ่าข้อความใน PDF ออกเป็น 2 ซีกเพื่อไม่ให้ตัวเลขตีกัน
+        split_keyword = "พลังงานไฟฟ้า"
+        parts = text.split(split_keyword)
         
-        # 1. วิ่งลูปสแกนหา Demand ท่อนบน (C, D, E) แยกตามลำดับคอลัมน์ "จำนวนที่ใช้"
-        for line in lines:
-            if "พลังงานไฟฟ้า" in line:
-                energy_section_started = True
+        # ท่อนบน: ก่อนคำว่า พลังงานไฟฟ้า (ใช้ดึงค่า กว. ช่อง C, D, E)
+        upper_text = parts[0] if len(parts) > 0 else ""
+        # ท่อนล่าง: ตั้งแต่คำว่า พลังงานไฟฟ้า เป็นต้นไป (ใช้ดึงค่าหน่วย ช่อง I, J, K)
+        lower_text = split_keyword + parts[1] if len(parts) > 1 else ""
+
+        # ----------------------------------------------------
+        # 1. ค้นหาในท่อนบนเท่านั้น (ดึง C, D, E)
+        # ----------------------------------------------------
+        upper_lines = upper_text.split('\n')
+        for line in upper_lines:
+            nums = re.findall(r"([\d,]+\.\d+)", line)
+            if not nums: continue
             
-            if not energy_section_started:
-                nums = re.findall(r"([\d,]+\.\d+)", line)
-                if not nums: continue
-                
-                # ช่อง C: แถว Peak ท่อนบน ดึงตัวเลขตัวที่ 3
-                if "Peak" in line and "กว" in line and "Off" not in line:
-                    if len(nums) >= 3: result["C"] = float(nums[2].replace(",", ""))
-                    else: result["C"] = float(nums[0].replace(",", ""))
-                
-                # ช่อง D: แถว OP ท่อนบน ดึงตัวเลขตัวที่ 3
-                elif "OP" in line and "กว" in line:
-                    if len(nums) >= 3: result["D"] = float(nums[2].replace(",", ""))
-                    else: result["D"] = float(nums[0].replace(",", ""))
-                
-                # ช่อง E: แถว H ท่อนบน ดึงตัวเลขตัวที่ 3
-                elif line.strip().startswith("H ") or " H " in line:
-                    if "กว" in line or len(nums) >= 3:
-                        if len(nums) >= 3: result["E"] = float(nums[2].replace(",", ""))
-                        else: result["E"] = float(nums[0].replace(",", ""))
-        
+            # ช่อง C: แถว Peak
+            if "Peak" in line and "กว" in line and "Off" not in line:
+                if len(nums) >= 3: result["C"] = float(nums[2].replace(",", ""))
+                else: result["C"] = float(nums[0].replace(",", ""))
+            
+            # ช่อง D: แถว OP
+            elif "OP" in line and "กว" in line:
+                if len(nums) >= 3: result["D"] = float(nums[2].replace(",", ""))
+                else: result["D"] = float(nums[0].replace(",", ""))
+            
+            # ช่อง E: แถว H
+            elif line.strip().startswith("H ") or " H " in line:
+                if "กว" in line or len(nums) >= 3:
+                    if len(nums) >= 3: result["E"] = float(nums[2].replace(",", ""))
+                    else: result["E"] = float(nums[0].replace(",", ""))
+
         result["G"] = 0.0
         result["H"] = 0.0
 
-        # 2. ใช้ Regex ดึงค่าหน่วยพลังงานไฟฟ้าฝั่งซ้าย (I, J, K) ตรง ๆ จากโครงสร้างตารางข้อความ
-        # หาบรรทัดที่มีข้อความ "พลังงานไฟฟ้า" แล้วดึงตัวเลขตัวที่ 3 ทันทีสำหรับช่อง I (P)
-        p_row = re.search(r'พลังงานไฟฟ้า.*?(?:P\s+|Peak\s+)?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text, re.I)
-        if p_row:
-            result["I"] = float(p_row.group(3).replace(",", ""))
-        
-        # หาบรรทัดที่มี OP ในตารางท่อนล่างเพื่อลงช่อง J (OP)
-        op_row = re.search(r'(?:OP|Off\s*Peak).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text, re.I)
-        if op_row:
-            result["J"] = float(op_row.group(3).replace(",", ""))
+        # ----------------------------------------------------
+        # 2. ค้นหาในท่อนล่างเท่านั้น มั่นใจได้ว่าจะได้เลขหน่วยหลักหมื่นแน่นอน! (ดึง I, J, K)
+        # ----------------------------------------------------
+        if lower_text:
+            # ดึงเฉพาะเนื้อหาตารางหน่วยก่อนที่จะถึงบรรทัดสรุปยอดเงินเพื่อความปลอดภัย
+            lower_clean = lower_text.split("รวมเงิน")[0].split("Sub Total")[0]
+            
+            # ช่อง I (P - ล่าง): สแกนหาแถวแรกสุดที่มีกลุ่มเลข 3 ตัวหลังคำว่า พลังงานไฟฟ้า
+            p_row = re.search(r'พลังงานไฟฟ้า.*?(?:P\s+|Peak\s+)?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', lower_clean, re.I)
+            if p_row:
+                result["I"] = float(p_row.group(3).replace(",", ""))
+            
+            # ช่อง J (OP - ล่าง): หาจากท่อนล่างเท่านั้น ดึงตัวเลขตัวที่ 3
+            op_row = re.search(r'(?:OP|Off\s*Peak).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', lower_clean, re.I)
+            if op_row:
+                result["J"] = float(op_row.group(3).replace(",", ""))
 
-        # หาบรรทัดที่มี H หรือ Holiday ในตารางท่อนล่างเพื่อลงช่อง K (H)
-        h_row = re.search(r'(?:[^A-Za-z]H\s+|Holiday\s+).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text, re.I)
-        if h_row:
-            result["K"] = float(h_row.group(3).replace(",", ""))
-        else:
-            # กรณีที่ pdfplumber ดึงบรรทัด H ออกมาแบบไม่สมบูรณ์ (โดนตัดข้อความเหลือแค่กลุ่มตัวเลขเดี่ยว ๆ ก่อนคำว่ารวม)
-            # ดักจับโดยหาตัวเลข 3 ตัวสุดท้ายที่อยู่ก่อนข้อความสรุปยอดเงิน
-            fallback_h = re.search(r'([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s*\n.*?(?:รวมเงิน|รวมค่าไฟฟ้า|Sub\s*Total)', text, re.I)
-            if fallback_h:
-                result["K"] = float(fallback_h.group(3).replace(",", ""))
+            # ช่อง K (H - ล่าง): หาจากท่อนล่างเท่านั้น ดึงตัวเลขตัวที่ 3 -> ได้ 38640.00 เป๊ะ!
+            h_row = re.search(r'(?:[^A-Za-z]H\s+|Holiday\s+).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', lower_clean, re.I)
+            if h_row:
+                result["K"] = float(h_row.group(3).replace(",", ""))
+            else:
+                # กรณีฉุกเฉินดักจับถ้าแถว H มีตัวเลขกระโดด ให้เอาเลขกลุ่ม 3 ตัวสุดท้ายของตาราง
+                fallback_nums = re.findall(r"([\d,]+\.\d+)", lower_clean)
+                if len(fallback_nums) >= 3:
+                    # ในตารางท่อนล่างถ้าเรียง P -> OP -> H ตัวเลข 3 ตัวสุดท้ายก่อนปิดโซนจะเป็นของแถว H
+                    result["K"] = float(fallback_nums[-1].replace(",", ""))
 
     # ========================================================
     # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดาที่ไม่ใช่ TOU)
@@ -119,11 +130,10 @@ def extract_exact_pea_bill(file_obj):
                 result["F"] = float(demand_cost_match.group(1).replace(",", ""))
 
     # ========================================================
-    # บล็อกรูปแบบที่ 1 (บิลดั้งเดิมสไตล์อื่น) -> ทำงานเฉพาะเมื่อไม่เข้าข่ายรูปแบบ 2 เท่านั้น
+    # บล็อกรูปแบบที่ 1 (บิลดั้งเดิมสไตล์อื่น)
     # ========================================================
     else:
-        # เช็กเพื่อความชัวร์ไม่ให้เขียนทับค่าหากเป็นบิล P, OP, H
-        if result["K"] == 0.0:
+        if result["K"] == 0.0 and result["J"] == 0.0:
             peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
             if peak:
                 result["C"] = float(peak.group(1).replace(",", ""))
