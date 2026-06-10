@@ -74,6 +74,16 @@ def extract_exact_pea_bill(file_obj):
             h_fallback = re.search(r'OP.*?([\d,]+\.\d+)\s+(?:H|Holiday)\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', energy_part, re.DOTALL | re.I)
             if h_fallback: result["K"] = float(h_fallback.group(2).replace(",", ""))
 
+        # 🎯 [จุดแก้ไขสําคัญ] ปรับปรุงการเจาะหาเงินค่าพลังงานไฟฟ้าพื้นฐาน (ช่อง L)
+        # มองหาบรรทัด "Peak ... หน่วย" แล้วเจาะเอาตัวเลขก้อนสุดท้าย (ซึ่งก็คือจำนวนเงินบาท)
+        for line in energy_part.split('\n'):
+            if "Peak" in line and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+                nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
+                if len(nums_in_line) >= 2:
+                    # เลือกตัวเลขก้อนสุดท้ายของบรรทัด (จำนวนเงินบาท เช่น 574,350.00)
+                    result["L"] = float(nums_in_line[-1].replace(",", ""))
+                    break
+
     # ========================================================
     # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดา ไม่ใช่ TOU)
     # ========================================================
@@ -140,7 +150,7 @@ def extract_exact_pea_bill(file_obj):
                 result["M"] = float(nums_in_op_line[-1].replace(",", ""))
                 break
 
-    # ดึงค่าฐาน Ft และ ยอดรวมค่าไฟพื้นฐาน (L, O, Q)
+    # เก็บตกกรณีค่า L ยังคงเป็น 0.0 ในบิลทั่วไป
     if result["L"] == 0.0:
         energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)', text)
         if not energy: energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
@@ -183,7 +193,7 @@ if uploaded_files:
     all_cols = ["ชื่อไฟล์", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]
     df = pd.DataFrame(data, columns=all_cols)
     
-    # 🎯 [จุดแก้ไขเพิ่มเติม] สั่งให้ในหน้าตารางเว็บพ่นเครื่องหมายขีด "-" ในช่อง O และ Q ไปเลยเพื่อไม่ให้สับสน
+    # สั่งให้ในหน้าตารางเว็บพ่นเครื่องหมายขีด "-" ในช่อง O และ Q ไปเลยเพื่อไม่ให้สับสนตามดีไซน์ล่าสุด
     df["O"] = "-"
     df["Q"] = "-"
     
@@ -213,12 +223,10 @@ if uploaded_files:
                 excel_key = str(ws[f'A{row_idx}'].value).strip()
                 if excel_key in ["None", ""]: continue
                 
-                # ค้นหาแถวที่ชื่อไฟล์ตรงกันใน DataFrame
                 match_row = df[df['ชื่อไฟล์'].apply(lambda x: excel_key in str(x))]
                 
                 if not match_row.empty:
                     row = match_row.iloc[0]
-                    # เขียนคอลัมน์ที่จำเป็นลง Excel (ส่วน O และ Q จะถูกข้ามไปอย่างปลอดภัย)
                     write_number(ws, f'C{row_idx}', row['C'])
                     write_number(ws, f'D{row_idx}', row['D'])
                     write_number(ws, f'E{row_idx}', row['E'])
@@ -228,10 +236,10 @@ if uploaded_files:
                     write_number(ws, f'I{row_idx}', row['I'])
                     write_number(ws, f'J{row_idx}', row['J'])
                     write_number(ws, f'K{row_idx}', row['K'])
-                    write_number(ws, f'L{row_idx}', row['L'])
+                    write_number(ws, f'L{row_idx}', row['L']) # 🎯 จะได้มูลค่าเงินท้ายแถว (574,350.00) ไปเขียนลง Excel อย่างถูกต้อง
                     write_number(ws, f'M{row_idx}', row['M'])
                     write_number(ws, f'N{row_idx}', row['N'])
-                    # 🔒 ล็อกเว้นว่างคอลัมน์ O และ Q ไว้ร้อยเปอร์เซ็นต์ ไม่เอาค่าคงที่ไปเขียนทับสูตรเดิม
+                    # เว้นว่างคอลัมน์ O และ Q ไว้ร้อยเปอร์เซ็นต์ ไม่เขียนทับสูตรเดิมตามตกลง
                     write_number(ws, f'P{row_idx}', row['P'])
             
             output = BytesIO()
