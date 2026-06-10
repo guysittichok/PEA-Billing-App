@@ -63,18 +63,14 @@ def extract_exact_pea_bill(file_obj):
         result["G"] = 0.0
         result["H"] = 0.0
 
-        # 2. ล็อกโซนตารางหน่วยพลังงานไฟฟ้าฝั่งซ้าย (I, J, K) วิ่งสแกนเรียงลำดับ P -> OP -> H ตัวล่าง
+        # 2. 🎯 ลูปสแกนหาตารางหน่วยฝั่งซ้าย (I, J, K) ตามวิธีเรียงลำดับ P -> OP -> H แบบเดียวกันทั้งหมด
         in_energy_zone = False
         for line in lines:
             if "พลังงานไฟฟ้า" in line:
                 in_energy_zone = True
-                nums = re.findall(r"([\d,]+\.\d+)", line)
-                if nums and "P" in line and "PP" not in line: 
-                    if len(nums) >= 3: result["I"] = float(nums[2].replace(",", ""))
-                    else: result["I"] = float(nums[-1].replace(",", ""))
                 continue
             
-            # ตัดจบเมื่อเจอสรุปยอดเงินด้านล่างตารางเพื่อความปลอดภัย
+            # ตัดจบเมื่อหลุดโซนตารางหน่วยพลังงาน
             if in_energy_zone and any(k in line for k in ["รวมเงินค่าไฟฟ้า", "Sub Total"]):
                 in_energy_zone = False
                 break
@@ -83,21 +79,20 @@ def extract_exact_pea_bill(file_obj):
                 nums = re.findall(r"([\d,]+\.\d+)", line)
                 if not nums: continue
                 
-                # สแกนหาช่อง J (Off Peak)
-                if "OP" in line: 
+                # แถว P ตัวล่าง -> ดึงตัวเลขตัวที่ 3 ลงช่อง I
+                if "P" in line and "OP" not in line and "PP" not in line and "Peak" not in line: 
+                    if len(nums) >= 3: result["I"] = float(nums[2].replace(",", ""))
+                    else: result["I"] = float(nums[-1].replace(",", ""))
+                
+                # แถว OP ตัวล่าง -> ดึงตัวเลขตัวที่ 3 ลงช่อง J
+                elif "OP" in line: 
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
                 
-                # 🎯 [แก้ไขจุดล็อกสำเร็จ] เช็กว่าเป็นแถว H ที่อยู่ในโซนตารางด้านล่างชัวร์ๆ 
-                # ปลดล็อกเงื่อนไข result["I"] ออก แล้วดึงเลขตัวสุดท้าย (nums[-1]) เพื่อให้ได้ค่า 38,640.00 คอลัมน์ 3 เป๊ะๆ
+                # แถว H ตัวล่าง -> ดึงตัวเลขตัวที่ 3 (หรือตัวที่มี) ลงช่อง K ตามวิธีเดียวกันเป๊ะๆ
                 elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line: 
-                    result["K"] = float(nums[-1].replace(",", ""))
-                    
-        # ดักจับสำรองกรณีฉุกเฉิน
-        if result["K"] == 0.0:
-            h_unit_match = re.search(r'พลังงานไฟฟ้า.*\n.*\n.*(?:H|Holiday)\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-            if h_unit_match:
-                result["K"] = float(h_unit_match.group(1).replace(",", ""))
+                    if len(nums) >= 3: result["K"] = float(nums[2].replace(",", ""))
+                    else: result["K"] = float(nums[0].replace(",", ""))
 
     # ========================================================
     # [คงเดิมไว้] -> รูปแบบที่ 3 และ 4
