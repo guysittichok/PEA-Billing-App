@@ -23,7 +23,7 @@ def extract_exact_pea_bill(file_obj):
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
-    # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H) -> แก้ไขแบ่งโซนเด็ดขาด
+    # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H)
     # ========================================================
     if is_tou and has_h_mode:
         # ดึงช่อง F จากตารางเงิน Peak ฝั่งขวา
@@ -31,17 +31,15 @@ def extract_exact_pea_bill(file_obj):
         if peak_money:
             result["F"] = float(peak_money.group(1).replace(",", ""))
 
-        # 🎯 ผ่าข้อความใน PDF ออกเป็น 2 ซีกเพื่อไม่ให้ตัวเลขตีกัน
+        # ผ่าข้อความใน PDF ออกเป็น 2 ซีกเพื่อแยกท่อนบนกับท่อนล่างออกจากกันเด็ดขาด
         split_keyword = "พลังงานไฟฟ้า"
         parts = text.split(split_keyword)
         
-        # ท่อนบน: ก่อนคำว่า พลังงานไฟฟ้า (ใช้ดึงค่า กว. ช่อง C, D, E)
         upper_text = parts[0] if len(parts) > 0 else ""
-        # ท่อนล่าง: ตั้งแต่คำว่า พลังงานไฟฟ้า เป็นต้นไป (ใช้ดึงค่าหน่วย ช่อง I, J, K)
         lower_text = split_keyword + parts[1] if len(parts) > 1 else ""
 
         # ----------------------------------------------------
-        # 1. ค้นหาในท่อนบนเท่านั้น (ดึง C, D, E)
+        # 1. ค้นหาในท่อนบนเท่านั้น (ดึงค่า กว. ช่อง C, D, E)
         # ----------------------------------------------------
         upper_lines = upper_text.split('\n')
         for line in upper_lines:
@@ -68,32 +66,37 @@ def extract_exact_pea_bill(file_obj):
         result["H"] = 0.0
 
         # ----------------------------------------------------
-        # 2. ค้นหาในท่อนล่างเท่านั้น มั่นใจได้ว่าจะได้เลขหน่วยหลักหมื่นแน่นอน! (ดึง I, J, K)
+        # 2. ค้นหาในท่อนล่างเท่านั้น (ดึงค่าหน่วยสุทธิ ช่อง I, J, K)
         # ----------------------------------------------------
         if lower_text:
-            # ดึงเฉพาะเนื้อหาตารางหน่วยก่อนที่จะถึงบรรทัดสรุปยอดเงินเพื่อความปลอดภัย
+            # ตัดเนื้อหาเอาเฉพาะโซนตารางพลังงานไฟฟ้าก่อนถึงสรุปยอดเงิน
             lower_clean = lower_text.split("รวมเงิน")[0].split("Sub Total")[0]
+            lower_lines = lower_clean.split('\n')
             
-            # ช่อง I (P - ล่าง): สแกนหาแถวแรกสุดที่มีกลุ่มเลข 3 ตัวหลังคำว่า พลังงานไฟฟ้า
-            p_row = re.search(r'พลังงานไฟฟ้า.*?(?:P\s+|Peak\s+)?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', lower_clean, re.I)
-            if p_row:
-                result["I"] = float(p_row.group(3).replace(",", ""))
-            
-            # ช่อง J (OP - ล่าง): หาจากท่อนล่างเท่านั้น ดึงตัวเลขตัวที่ 3
-            op_row = re.search(r'(?:OP|Off\s*Peak).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', lower_clean, re.I)
-            if op_row:
-                result["J"] = float(op_row.group(3).replace(",", ""))
-
-            # ช่อง K (H - ล่าง): หาจากท่อนล่างเท่านั้น ดึงตัวเลขตัวที่ 3 -> ได้ 38640.00 เป๊ะ!
-            h_row = re.search(r'(?:[^A-Za-z]H\s+|Holiday\s+).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', lower_clean, re.I)
-            if h_row:
-                result["K"] = float(h_row.group(3).replace(",", ""))
-            else:
-                # กรณีฉุกเฉินดักจับถ้าแถว H มีตัวเลขกระโดด ให้เอาเลขกลุ่ม 3 ตัวสุดท้ายของตาราง
-                fallback_nums = re.findall(r"([\d,]+\.\d+)", lower_clean)
-                if len(fallback_nums) >= 3:
-                    # ในตารางท่อนล่างถ้าเรียง P -> OP -> H ตัวเลข 3 ตัวสุดท้ายก่อนปิดโซนจะเป็นของแถว H
-                    result["K"] = float(fallback_nums[-1].replace(",", ""))
+            for line in lower_lines:
+                nums = re.findall(r"([\d,]+\.\d+)", line)
+                if not nums: continue
+                
+                # ช่อง I (P - แถวพลังงานไฟฟ้าล่าง)
+                if "พลังงานไฟฟ้า" in line:
+                    if len(nums) >= 3: result["I"] = float(nums[2].replace(",", ""))
+                    elif len(nums) == 1: result["I"] = float(nums[0].replace(",", ""))
+                
+                # ช่อง J (OP - แถวกลางล่าง)
+                elif "OP" in line:
+                    if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
+                    elif len(nums) == 1: result["J"] = float(nums[0].replace(",", ""))
+                
+                # ช่อง K (H - แถวที่สามล่างสุดของตาราง)
+                # เช็กตัวอักษรนำหน้าเพื่อเจาะจงแถว H ล่าง และหลบเลี่ยงการชนกับบรรทัดอื่น
+                elif line.strip().startswith("H ") or line.strip() == "H" or " H " in line or "Holiday" in line:
+                    if len(nums) >= 3: 
+                        result["K"] = float(nums[2].replace(",", ""))
+                    elif len(nums) == 1:
+                        result["K"] = float(nums[0].replace(",", ""))
+                    elif len(nums) == 2:
+                        # กรณีโดนสแกนเบียดข้อความจนติดเรทอัตราค่าไฟ ให้เอาตัวเลขตัวสุดท้าย
+                        result["K"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
     # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดาที่ไม่ใช่ TOU)
@@ -130,9 +133,10 @@ def extract_exact_pea_bill(file_obj):
                 result["F"] = float(demand_cost_match.group(1).replace(",", ""))
 
     # ========================================================
-    # บล็อกรูปแบบที่ 1 (บิลดั้งเดิมสไตล์อื่น)
+    # บล็อกรูปแบบที่ 1 (บิลดั้งเดิมประเภทอื่น)
     # ========================================================
     else:
+        # ทำงานเฉพาะกรณีที่ไม่ได้ถูกกรอกค่าจากบิล TOU รูปแบบหลักด้านบนเท่านั้นเพื่อป้องกันการทับซ้อน
         if result["K"] == 0.0 and result["J"] == 0.0:
             peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
             if peak:
@@ -156,7 +160,7 @@ def extract_exact_pea_bill(file_obj):
                 elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
     # ========================================================
-    # โครงสร้างคอลลัมน์คงเหลือ M, L, O, P, Q (ดึงค่าปกติ)
+    # ส่วนสรุปค่าคอลัมน์คงเหลือ M, L, O, P, Q
     # ========================================================
     for line in text.split('\n'):
         if "off" in line.lower() and "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
