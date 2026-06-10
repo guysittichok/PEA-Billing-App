@@ -37,7 +37,7 @@ def extract_exact_pea_bill(file_obj):
         h_money_match = re.search(r'(?:H|Holiday)\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if h_money_match: result["H"] = float(h_money_match.group(1).replace(",", ""))
 
-        # ตัดแบ่งโซนข้อความเป็น ท่อนบน และ ท่อนล่าง สำหรับค่าหน่วย/ดีมานด์ทั่วไป
+        # ตัดแบ่งโซนข้อความเป็น ท่อนบน และ ท่อนล่าง โดยใช้คำว่า "พลังงานไฟฟ้า" เป็นตัวแบ่ง
         parts = text.split("พลังงานไฟฟ้า")
         demand_part = parts[0]
         energy_part = parts[1] if len(parts) > 1 else text 
@@ -128,19 +128,6 @@ def extract_exact_pea_bill(file_obj):
             elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
-   # 🎯 [จุดแก้ไขถาวร] ลอจิกหาค่าเงินพลังงานไฟฟ้าพื้นฐาน (ช่อง L) สำหรับบิล TOU
-    if is_tou:
-        for line in text.split('\n'):
-            # ค้นหาบรรทัด "Peak ... หน่วย" เท่านั้น เพื่อเลี่ยงการไปดึงเลขจากตารางประวัติการใช้ไฟฟ้า
-            if "Peak" in line and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
-                # ตรวจสอบว่าไม่ใช่บรรทัด "กว." (Demand)
-                if "กว" not in line:
-                    nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
-                    if len(nums_in_line) >= 2:
-                        # เลือกตัวเลขก้อนสุดท้ายของบรรทัด (ซึ่งคือเงินบาท เช่น 574,350.00)
-                        result["L"] = float(nums_in_line[-1].replace(",", ""))
-                        break
-
     # ========================================================
     # ส่วนดักจับค่าท้ายบิลทั่วไป (M, L, O, P, Q)
     # ========================================================
@@ -153,14 +140,17 @@ def extract_exact_pea_bill(file_obj):
                 result["M"] = float(nums_in_op_line[-1].replace(",", ""))
                 break
 
-    # เก็บตกกรณีค่า L ยังคงเป็น 0.0 ในบิลทั่วไป
-    if result["L"] == 0.0 and not is_tou:
+    # ดึงค่าฐาน Ft และ ยอดรวมค่าไฟพื้นฐาน (L, O, Q)
+    if result["L"] == 0.0:
         energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)', text)
         if not energy: energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
         if energy: 
             try:
-                base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
-                result["L"] = float(base_cost_match.group(1).replace(",", "")) if base_cost_match else float(energy.group(1).replace(",", ""))
+                if not is_tou:
+                    base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
+                    result["L"] = float(base_cost_match.group(1).replace(",", "")) if base_cost_match else float(energy.group(1).replace(",", ""))
+                else:
+                    result["L"] = float(energy.group(2).replace(",", ""))
             except:
                 result["L"] = float(energy.group(1).replace(",", ""))
     
@@ -193,7 +183,7 @@ if uploaded_files:
     all_cols = ["ชื่อไฟล์", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]
     df = pd.DataFrame(data, columns=all_cols)
     
-    # สั่งให้ในหน้าตารางเว็บพ่นเครื่องหมายขีด "-" ในช่อง O และ Q ไปเลยเพื่อไม่ให้สับสนตามดีไซน์ล่าสุด
+    # 🎯 [จุดแก้ไขเพิ่มเติม] สั่งให้ในหน้าตารางเว็บพ่นเครื่องหมายขีด "-" ในช่อง O และ Q ไปเลยเพื่อไม่ให้สับสน
     df["O"] = "-"
     df["Q"] = "-"
     
@@ -223,10 +213,12 @@ if uploaded_files:
                 excel_key = str(ws[f'A{row_idx}'].value).strip()
                 if excel_key in ["None", ""]: continue
                 
+                # ค้นหาแถวที่ชื่อไฟล์ตรงกันใน DataFrame
                 match_row = df[df['ชื่อไฟล์'].apply(lambda x: excel_key in str(x))]
                 
                 if not match_row.empty:
                     row = match_row.iloc[0]
+                    # เขียนคอลัมน์ที่จำเป็นลง Excel (ส่วน O และ Q จะถูกข้ามไปอย่างปลอดภัย)
                     write_number(ws, f'C{row_idx}', row['C'])
                     write_number(ws, f'D{row_idx}', row['D'])
                     write_number(ws, f'E{row_idx}', row['E'])
@@ -236,9 +228,10 @@ if uploaded_files:
                     write_number(ws, f'I{row_idx}', row['I'])
                     write_number(ws, f'J{row_idx}', row['J'])
                     write_number(ws, f'K{row_idx}', row['K'])
-                    write_number(ws, f'L{row_idx}', row['L']) # 🔒 มั่นใจได้เลยว่าค่าก้อนเงินที่ถูกต้องจะถูกเขียนเข้า Excel เสมอ
+                    write_number(ws, f'L{row_idx}', row['L'])
                     write_number(ws, f'M{row_idx}', row['M'])
                     write_number(ws, f'N{row_idx}', row['N'])
+                    # 🔒 ล็อกเว้นว่างคอลัมน์ O และ Q ไว้ร้อยเปอร์เซ็นต์ ไม่เอาค่าคงที่ไปเขียนทับสูตรเดิม
                     write_number(ws, f'P{row_idx}', row['P'])
             
             output = BytesIO()
