@@ -27,7 +27,7 @@ def extract_exact_pea_bill(file_obj):
     # บล็อกรูปแบบบิลพิเศษ (บิลแบบ P, OP, H)
     # ========================================================
     if is_tou and has_h_mode:
-        # ดึงกลุ่มข้อมูลเงินค่า Demand ฝั่งขวา (ช่อง F, G, H) จากข้อความทั้งหมด
+        # ดึงกลุ่มข้อมูลเงินค่า Demand ฝั่งขวา (ช่อง F, G, H)
         peak_money_match = re.search(r'Peak\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if peak_money_match: result["F"] = float(peak_money_match.group(1).replace(",", ""))
             
@@ -37,13 +37,12 @@ def extract_exact_pea_bill(file_obj):
         h_money_match = re.search(r'(?:H|Holiday)\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if h_money_match: result["H"] = float(h_money_match.group(1).replace(",", ""))
 
-        # 🎯 [วิธีแก้แบบยั่งยืน] ตัดแบ่งโซนข้อความเป็น ท่อนบน และ ท่อนล่าง โดยใช้คำว่า "พลังงานไฟฟ้า" เป็นตัวแบ่ง
+        # ตัดแบ่งโซนข้อความเป็น ท่อนบน และ ท่อนล่าง โดยใช้คำว่า "พลังงานไฟฟ้า" เป็นตัวแบ่ง
         parts = text.split("พลังงานไฟฟ้า")
         demand_part = parts[0]
-        # ถ้าแบ่งสำเร็จ ให้สแกนเฉพาะท่อนล่าง ถ้าไม่สำเร็จให้ใช้ข้อความทั้งหมด (กันเหนียว)
         energy_part = parts[1] if len(parts) > 1 else text 
 
-        # 1. ค้นหา Demand ท่อนบน (ช่อง C, D, E) สแกนหาเฉพาะใน `demand_part` เท่านั้น
+        # 1. ค้นหา Demand ท่อนบน (ช่อง C, D, E) สแกนหาเฉพาะใน `demand_part`
         demand_lines = demand_part.split('\n')
         for line in demand_lines:
             nums = re.findall(r"([\d,]+\.\d+)", line)
@@ -57,32 +56,26 @@ def extract_exact_pea_bill(file_obj):
                 if "กว" in line or len(nums) >= 3:
                     result["E"] = float(nums[2].replace(",", "")) if len(nums) >= 3 else float(nums[0].replace(",", ""))
 
-        # 2. ค้นหาหน่วยพลังงานไฟฟ้า (ช่อง I, J, K) บังคับสแกนหาเฉพาะใน `energy_part` เท่านั้น!!
-        # คราวนี้ต่อให้เจออักษร H หรือคำว่า Holiday มันก็จะเจอเฉพาะเวอร์ชันที่เป็น "หน่วยหลักหมื่นหลักแสน" ของตารางล่างเท่านั้น
+        # 2. ค้นหาหน่วยพลังงานไฟฟ้า (ช่อง I, J, K) บังคับสแกนหาเฉพาะใน `energy_part`
         p_unit = re.search(r'(?:^|\s+)P\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', energy_part, re.I)
         if p_unit: 
             result["I"] = float(p_unit.group(1).replace(",", ""))
         else:
-            # สำรองกรณีอ่านแพทเทิร์นบรรทัดแรกติดหัวตาราง
             p_unit_alt = re.search(r'(?:พลังงานไฟฟ้า)?\s+P\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
             if p_unit_alt: result["I"] = float(p_unit_alt.group(1).replace(",", ""))
 
         op_unit = re.search(r'OP\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', energy_part, re.I)
         if op_unit: result["J"] = float(op_unit.group(1).replace(",", ""))
 
-        # ดึงช่อง K จากโซนด้านล่างอย่างปลอดภัย (เลิกเช็กขนาดตัวเลข > 1000 หรือ > 2000 แล้ว)
         h_unit = re.search(r'(?:H|Holiday)\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', energy_part, re.I)
-        if h_unit: 
-            result["K"] = float(h_unit.group(1).replace(",", ""))
+        if h_unit: result["K"] = float(h_unit.group(1).replace(",", ""))
             
-        # สำรองกรณีตารางล่างถูกบีบรวมบรรทัด ค้นหาแถว H ที่ตามหลัง OP ในโซนท่อนล่าง
         if result["K"] == 0.0:
             h_fallback = re.search(r'OP.*?([\d,]+\.\d+)\s+(?:H|Holiday)\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', energy_part, re.DOTALL | re.I)
-            if h_fallback:
-                result["K"] = float(h_fallback.group(2).replace(",", ""))
+            if h_fallback: result["K"] = float(h_fallback.group(2).replace(",", ""))
 
     # ========================================================
-    # บล็อกรูปแบบบิลประเภทอื่นๆ (คงเดิมไว้ทั้งหมด)
+    # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดา ไม่ใช่ TOU) -> ดึงกลับมาครบแล้วครับ!
     # ========================================================
     elif not is_tou:
         lines = text.split('\n')
@@ -110,6 +103,10 @@ def extract_exact_pea_bill(file_obj):
 
             demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
             if demand_cost_match: result["F"] = float(demand_cost_match.group(1).replace(",", ""))
+            
+    # ========================================================
+    # บล็อกรูปแบบที่ 1 (บิลดั้งเดิม/บิล TOU ทั่วไป) -> ดึงกลับมาครบแล้วครับ!
+    # ========================================================
     else:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if peak:
@@ -131,6 +128,9 @@ def extract_exact_pea_bill(file_obj):
             elif "PP" in line: result["J"] = float(nums[-1].replace(",", ""))
             elif "OP" in line: result["K"] = float(nums[-1].replace(",", ""))
 
+    # ========================================================
+    # ส่วนดักจับค่าท้ายบิลทั่วไป (M, L, O, P, Q) -> คืนชีพส่วนที่หายทั้งหมดครับ!
+    # ========================================================
     # ดึงค่าช่อง M (Off Peak หน่วยสะสมซ้ายสุด)
     for line in text.split('\n'):
         if "off" in line.lower() and "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
@@ -173,7 +173,7 @@ def extract_exact_pea_bill(file_obj):
     return result
 
 # ----------------------------------------------------
-# ส่วนโครงสร้าง Excel & Streamlit UI (คงเดิมไว้ทั้งหมด)
+# ส่วนโครงสร้าง Excel & Streamlit UI 
 # ----------------------------------------------------
 uploaded_files = st.file_uploader("อัปโหลดไฟล์บิล PDF", type=["pdf"], accept_multiple_files=True)
 template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้นแบบ", type=["xlsx"])
@@ -212,6 +212,7 @@ if uploaded_files:
                 
                 if not match_row.empty:
                     row = match_row.iloc[0]
+                    # เขียนคอลัมน์ที่จำเป็นลง Excel เหมือนเดิมทั้งหมด
                     write_number(ws, f'C{row_idx}', row['C'])
                     write_number(ws, f'D{row_idx}', row['D'])
                     write_number(ws, f'E{row_idx}', row['E'])
@@ -224,14 +225,13 @@ if uploaded_files:
                     write_number(ws, f'L{row_idx}', row['L'])
                     write_number(ws, f'M{row_idx}', row['M'])
                     write_number(ws, f'N{row_idx}', row['N'])
-                    write_number(ws, f'O{row_idx}', row['O'])
+                    # 🎯 ปล่อยคอลัมน์ O และ Q ว่างไว้ ไม่เขียนทับ เพื่อให้สูตรใน Excel ทำงาน
                     write_number(ws, f'P{row_idx}', row['P'])
-                    write_number(ws, f'Q{row_idx}', row['Q'])
             
             output = BytesIO()
             wb.save(output)
             output.seek(0)
-            st.success("กรอกข้อมูลครบทุกช่องแล้ว!")
+            st.success("กรอกข้อมูลลงใน Template เรียบร้อยและรักษาสูตรเดิมแล้ว!")
             st.download_button("📥 ดาวน์โหลด Excel", output, "Updated_PEA_Bill.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             
         except Exception as e:
