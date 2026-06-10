@@ -27,7 +27,7 @@ def extract_exact_pea_bill(file_obj):
     # บล็อกรูปแบบที่ 2 (บิลแบบ P, OP, H) -> เข้าทำงานได้แล้ว 100%
     # ========================================================
     if is_tou and has_h_mode:
-        # ดึงช่อง F จากตารางเงิน Peak ฝั่งขวาก่อน
+        # ดึงช่อง F จากตารางเงิน Peak ฝั่งขวา
         peak_money = re.search(r'Peak\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if peak_money:
             result["F"] = float(peak_money.group(1).replace(",", ""))
@@ -35,42 +35,35 @@ def extract_exact_pea_bill(file_obj):
         lines = text.split('\n')
         energy_section_started = False
         
-        # วิ่งลูปสแกนหา Demand ท่อนบน (C, D, E) แยกตามลำดับคอลัมน์ "จำนวนที่ใช้"
+        # 1. วิ่งลูปสแกนหา Demand ท่อนบน (C, D, E) แยกตามลำดับคอลัมน์ "จำนวนที่ใช้"
         for line in lines:
             if "พลังงานไฟฟ้า" in line:
                 energy_section_started = True
             
-            # ทำงานเฉพาะโซนท่อนบน (รายละเอียดการไฟฟ้า) เท่านั้น
             if not energy_section_started:
                 nums = re.findall(r"([\d,]+\.\d+)", line)
                 if not nums: continue
                 
-                # 🎯 แก้ไขคอลัมน์ช่อง C: ดึงเลขตัวที่ 3 (จำนวนที่ใช้) ของแถว Peak ไม่ให้เอาเลขมิเตอร์มา
+                # ช่อง C: แถว Peak ท่อนบน ดึงตัวเลขตัวที่ 3 (จำนวนที่ใช้)
                 if "Peak" in line and "กว" in line and "Off" not in line:
-                    if len(nums) >= 3:
-                        result["C"] = float(nums[2].replace(",", ""))
-                    else:
-                        result["C"] = float(nums[0].replace(",", ""))
+                    if len(nums) >= 3: result["C"] = float(nums[2].replace(",", ""))
+                    else: result["C"] = float(nums[0].replace(",", ""))
                 
-                # 🎯 แก้ไขคอลัมน์ช่อง D: ดึงเลขตัวที่ 3 (จำนวนที่ใช้) ของแถว OP ซึ่งจะได้ 426.00 เป๊ะๆ ไม่เอา 43.849 แล้ว!
+                # ช่อง D: แถว OP ท่อนบน ดึงตัวเลขตัวที่ 3 (จำนวนที่ใช้) -> ได้ 426.00 ไม่หลุดไป 43.849
                 elif "OP" in line and "กว" in line:
-                    if len(nums) >= 3:
-                        result["D"] = float(nums[2].replace(",", ""))
-                    else:
-                        result["D"] = float(nums[0].replace(",", ""))
+                    if len(nums) >= 3: result["D"] = float(nums[2].replace(",", ""))
+                    else: result["D"] = float(nums[0].replace(",", ""))
                 
-                # ดึงช่อง E จากแถว H ท่อนบน (ตัวที่ 3 เหมือนกัน)
+                # ช่อง E: แถว H ท่อนบน ดึงตัวเลขตัวที่ 3 (จำนวนที่ใช้)
                 elif line.strip().startswith("H ") or " H " in line:
                     if "กว" in line or len(nums) >= 3:
-                        if len(nums) >= 3:
-                            result["E"] = float(nums[2].replace(",", ""))
-                        else:
-                            result["E"] = float(nums[0].replace(",", ""))
+                        if len(nums) >= 3: result["E"] = float(nums[2].replace(",", ""))
+                        else: result["E"] = float(nums[0].replace(",", ""))
         
         result["G"] = 0.0
         result["H"] = 0.0
 
-        # ล็อกโซนตารางหน่วยฝั่งซ้าย (ด้วยคำว่า รวม) 
+        # 2. ล็อกโซนตารางหน่วยพลังงานไฟฟ้าฝั่งซ้าย (I, J, K)
         in_energy_zone = False
         for line in lines:
             if "พลังงานไฟฟ้า" in line:
@@ -92,9 +85,10 @@ def extract_exact_pea_bill(file_obj):
                 if "OP" in line: 
                     if len(nums) >= 3: result["J"] = float(nums[2].replace(",", ""))
                     else: result["J"] = float(nums[-1].replace(",", ""))
-                elif "H" in line or "Holiday" in line: 
-                    if len(nums) >= 3: result["K"] = float(nums[2].replace(",", ""))
-                    else: result["K"] = float(nums[-1].replace(",", ""))
+                
+                # 🎯 [แก้ไขเสร็จสิ้น] เจาะจงดึงตัวเลขตัวสุดท้ายของแถว H ในโซนพลังงานไฟฟ้าลงช่อง K ชัวร์ๆ (ไม่โดนเงื่อนไขแย่งซีนรีเซ็ตกลับ)
+                elif line.strip().startswith("H ") or " H " in line or "Holiday" in line: 
+                    result["K"] = float(nums[-1].replace(",", ""))
                     
         if result["K"] == 0.0:
             h_unit_match = re.search(r'(?:H|Holiday)\s+([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text, re.I)
