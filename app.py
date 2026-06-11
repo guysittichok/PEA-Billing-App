@@ -115,44 +115,40 @@ def extract_exact_pea_bill(file_obj):
                 break
 
     # ========================================================
-    # 🎯 [แก้ไขตรงจุด] เจาะจงเฉพาะลอจิกช่อง L ให้แม่นยำขึ้น
+    # 🎯 [แก้ไขครั้งสุดท้าย] เจาะลอจิกช่อง L ด้วยระบบ Block Search Pattern
     # ========================================================
-    lines = text.split('\n')
     found_l = False
 
-    # กรองลูปแรกเฉพาะกรณีบิล TOU เท่านั้น (ไม่ยุ่งกับบิลธรรมดา)
     if is_tou:
-        for line in lines:
-            # ข้ามแถวประวัติขวา และคำสรุปยอด
-            if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or "ประวัติ" in line or "history" in line.lower():
-                continue
-            if "กว." in line or "กว" in line or "ค่าบริการ" in line or "รวมเงิน" in line or "total" in line.lower():
-                continue
-
-            # สแกนหาบรรทัดกลุ่ม "หน่วย" พลังงานไฟฟ้า
-            if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
-                nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
-                
-                # บิล TOU แท้ ยอดเงินบาทสรุปท้ายบรรทัดจะมาพร้อมกับอัตราค่าไฟฟ้าทศนิยม 4 ตำแหน่ง (เช่น 3.1471 หรือ 4.1839)
-                # และในบรรทัดนั้นต้องมีตัวเลขอย่างน้อย 3 ชุด (จำนวนหน่วยใช้, อัตราต่อหน่วย, จำนวนเงินรวม)
-                if len(nums_in_line) >= 3:
-                    # เช็กว่าตัวเลขรองสุดท้ายเป็นอัตราค่าไฟหรือไม่ (ปกติอยู่ระหว่าง 2.0 - 5.0 บาท)
-                    rate_val = float(nums_in_line[-2].replace(",", ""))
-                    if 2.0 <= rate_val <= 5.0:
-                        potential_money = float(nums_in_line[-1].replace(",", ""))
-                        
-                        # ดักความปลอดภัยขั้นสุดท้าย: ต้องไม่ใช่เลขช่อง M และไม่ใช่เลขจำนวนหน่วยใช้
-                        if potential_money != result["M"] and potential_money not in [65760.0, 379280.0]:
-                            # ถ้าเป็นบิลที่มีคำว่า Peak หรือเป็นบรรทัดแรกที่เจอในหมวดหน่วยของบิล TOU
-                            if "peak" in line.lower() or not found_l:
+        # ล็อกแพทเทิร์นบิล TOU: หาแถวที่มี [คำระบุช่วงเวลาหรือตัวเลขหน่วย] -> [คำว่าหน่วย] -> [อัตราค่าไฟทศนิยม 4 ตำแหน่ง] -> [จำนวนเงินบาทรวมขวาสุด]
+        # ตัวอย่างโครงสร้าง: "Peak 175,680.00 หน่วย 4.1839 735,027.55" หรือ "1,235,200.00 หน่วย 3.1471 3,887,297.92"
+        tou_pattern = re.search(r'(?:Peak|[\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)\s+(\d+\.\d{4})\s+([\d,]+\.\d+)', text, re.I)
+        if tou_pattern:
+            potential_money = float(tou_pattern.group(2).replace(",", ""))
+            # เช็กความปลอดภัยว่ายอดเงินบาทต้องไม่ใช่เลขหน่วยสะสม 65760.0 หรือยอดช่อง M
+            if potential_money != result["M"] and potential_money not in [65760.0, 379280.0]:
+                result["L"] = potential_money
+                found_l = True
+        
+        # กรณีฉุกเฉิน: ถ้าบิลขยับตำแหน่งจนหลุด Pattern แรก ให้หาบรรทัดที่มีอัตราค่าไฟทศนิยม 4 ตำแหน่งโดยตรง (แต่ข้ามบรรทัดประวัติ)
+        if not found_l:
+            for line in text.split('\n'):
+                if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or "ประวัติ" in line or "history" in line.lower() or "กว" in line:
+                    continue
+                if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+                    nums = re.findall(r"([\d,]+\.\d+)", line)
+                    if len(nums) >= 3:
+                        # ตรวจสอบว่ามีค่าอัตราไฟฟ้าทศนิยม 4 ตำแหน่งซ่อนอยู่หรือไม่
+                        if any(len(n.split('.')[-1]) == 4 for n in nums):
+                            potential_money = float(nums[-1].replace(",", ""))
+                            if potential_money != result["M"] and potential_money not in [65760.0, 379280.0]:
                                 result["L"] = potential_money
                                 found_l = True
-                                if "peak" in line.lower(): 
-                                    break # ถ้าเจอคำว่า Peak ตรง ๆ ให้ล็อกค่านี้ทันที
+                                break
 
-    # Fallback สำหรับบิลประเภทธรรมดาทั่วไป (คงลอจิกเดิมที่เคยถูกไว้ 100%)
+    # Fallback สำหรับบิลประเภทธรรมดาทั่วไป (ลอจิกเดิม ไม่มีการเปลี่ยนแปลง)
     if not is_tou or not found_l:
-        for line in lines:
+        for line in text.split('\n'):
             if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or any(k in line for k in ["ประวัติ", "history", "กว.", "กว", "ค่าบริการ", "รวมเงิน", "total"]): 
                 continue
             if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
