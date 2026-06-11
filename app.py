@@ -129,35 +129,30 @@ def extract_exact_pea_bill(file_obj):
                 result["M"] = float(nums_in_op_line[-1].replace(",", ""))
                 break
 
-    # 🎯 [ปรับปรุงดักจับค่า L ปลอดภัยร้อยเปอร์เซ็นต์] วนลูปอ่านทีละบรรทัดเพื่อไม่ให้เจอตารางประวัติการใช้ไฟฟ้าหลอก
+    # 🎯 [จุดแก้ไขถาวร - เจาะจงบรรทัดพลังงานไฟฟ้าบรรทัดแรกสุด]
     for line in text.split('\n'):
-        # ข้ามบรรทัดที่เป็นตารางประวัติการใช้ไฟฟ้าฝั่งขวาออกไปเลยเด็ดขาด
-        if "ประวัติ" in line or "history" in line.lower():
+        # ข้ามบรรทัดที่ไม่เกี่ยวข้องและบรรทัดที่เป็น กว. (Demand)
+        if "ประวัติ" in line or "history" in line.lower() or "กว." in line or "กว" in line:
             continue
             
-        # ตรวจสอบรูปแบบที่ 1: เจอคำว่า Peak และ หน่วย ในบรรทัดเดียวกัน (รายละเอียดค่าไฟฟ้าฐาน)
-        if "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
-            # ดึงกลุ่มตัวเลขที่มีจุดทศนิยมทั้งหมดในบรรทัดนั้น
+        # เลือกบรรทัดที่มีรายละเอียดค่าพลังงานไฟฟ้า (มีคำว่า หน่วย)
+        if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
             nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
             if nums_in_line:
-                # ตัวเลขเงินรวมจะอยู่ท้ายสุดของแถวรายละเอียดค่าไฟฟ้าฐานเสมอ
+                # ป้องกันการดึงค่าบริการรายเดือน หรือยอดสรุปรวมท้ายตาราง
+                if "ค่าบริการ" in line or "รวมเงิน" in line or "total" in line.lower():
+                    continue
+                    
+                # 🔒 ดึงยอดเงินบรรทัดแรกสุดก้อนเดียว (เช่น ยอด Peak พลังงานไฟฟ้า 735,027.55) แล้ว break ทันที!
                 result["L"] = float(nums_in_line[-1].replace(",", ""))
                 break
                 
-        # ตรวจสอบรูปแบบที่ 2: บิลปกติทั่วไป (มีตัวเลข...หน่วย และมีคำว่า พลังงานไฟฟ้า ในแถว หรือโครงสร้างคิดเงิน)
-        elif "พลังงานไฟฟ้า" in line and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
-            nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
-            if nums_in_line:
-                result["L"] = float(nums_in_line[-1].replace(",", ""))
-                break
-                
-    # กรณีบิลปกติแบบที่ 2 ที่คำว่า "พลังงานไฟฟ้า" อยู่คนละบรรทัดกับ "หน่วย" (Fallback ป้องกันเหนียว)
+    # ฟังก์ชันสแกนรอบสอง (Fallback สำหรับบิลประเภททั่วไปอื่นๆ)
     if result["L"] == 0.0:
         for line in text.split('\n'):
-            if "ประวัติ" in line or "history" in line.lower(): continue
-            if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]) and not any(k in line.lower() for k in ["peak", "off", "partial"]):
+            if any(k in line for k in ["ประวัติ", "history", "กว.", "กว", "ค่าบริการ", "รวมเงิน", "total"]): continue
+            if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
                 nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
-                # ต้องมีอย่างน้อย 2 ชุด (หน่วย + จำนวนเงิน หรือ หน่วย + ราคาต่อหน่วย + จำนวนเงิน)
                 if len(nums_in_line) >= 2:
                     result["L"] = float(nums_in_line[-1].replace(",", ""))
                     break
