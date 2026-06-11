@@ -129,16 +129,22 @@ def extract_exact_pea_bill(file_obj):
                 result["M"] = float(nums_in_op_line[-1].replace(",", ""))
                 break
 
-    # 🎯 [จุดแก้ไขถาวรตามบรีฟเทรนนิ่ง] ดึงค่ายอดเงินพลังงานไฟฟ้าพื้นฐานฝั่งขวา (Column L)
-    # ตรวจสอบรูปแบบที่ 1: มองหาคำว่า Peak [ตัวเลข] หน่วย แล้วกระโดดไปดึงจำนวนเงินท้ายแถว
-    peak_unit_money = re.search(r'Peak\s+[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย).*?\s+([\d,]+\.\d+)', text, re.I)
+    # 🎯 [จุดแก้ไขถาวร] ปรับปรุงลอจิกเลื่อนตำแหน่งไปหยิบจำนวนเงินฝั่งขวาสุดของบรรทัด (Column L)
+    # รูปแบบที่ 1: มองหาคำว่า Peak ... หน่วย แล้วดักลอจิกให้สไลด์ไปดึงตัวเลขชุดเงินท้ายสุดของแถว
+    peak_unit_money = re.search(r'Peak\s+[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย).*?\s+([\d,]+\.\d+)\s*$', text, re.M | re.I)
+    if not peak_unit_money:
+        peak_unit_money = re.search(r'Peak\s+[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+
     if peak_unit_money:
         result["L"] = float(peak_unit_money.group(1).replace(",", ""))
     else:
-        # ตรวจสอบรูปแบบที่ 2: มองหา [ตัวเลข] หน่วย โดดๆ (สกัดคำว่า Peak, Off Peak, Partial Peak ออกไป) แล้วดึงเงินท้ายแถว
-        base_unit_money = re.search(r'(?<!Peak\s)(?<!Off Peak\s)(?<!Partial Peak\s)(?:^|\s)([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย).*?\s+([\d,]+\.\d+)', text, re.I)
+        # รูปแบบที่ 2: มองหา [ตัวเลข] หน่วย โดดๆ โดยคัดประเภท Peak/Off/Partial ออกไป แล้วขยับไปจับค่าเงินชุดขวาสุดของบรรทัด
+        base_unit_money = re.search(r'(?<!Peak\s)(?<!Off Peak\s)(?<!Partial Peak\s)(?:^|\s)[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
+        if not base_unit_money:
+            base_unit_money = re.search(r'(?<!Peak\s)(?<!Off Peak\s)(?<!Partial Peak\s)(?:^|\s)[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย).*?\s+([\d,]+\.\d+)\s*$', text, re.M | re.I)
+        
         if base_unit_money:
-            result["L"] = float(base_unit_money.group(2).replace(",", ""))
+            result["L"] = float(base_unit_money.group(1).replace(",", ""))
     
     ft = re.search(r'ค่า\s*Ft.*?=\s*[\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)', text, re.I)
     if not ft: ft = re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I)
