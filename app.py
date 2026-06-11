@@ -129,25 +129,38 @@ def extract_exact_pea_bill(file_obj):
                 result["M"] = float(nums_in_op_line[-1].replace(",", ""))
                 break
 
-    # 🎯 [จุดแก้ไขถาวรเพื่อป้องกันประวัติการใช้ไฟฟ้า] 
-    # ทำการตัดท่อน "ประวัติการใช้ไฟฟ้า" ออกไปจาก text_clean ก่อนคำนวณหาค่า L เสมอ เพื่อไม่ให้เจอตารางฝั่งขวาหลอก
-    text_clean = re.split(r'ประวัติการใช้ไฟฟ้า|Usage\s+History', text, flags=re.I)[0]
-
-    # รูปแบบที่ 1: มองหาคำว่า Peak ... หน่วย ในข้อความที่คลีนแล้ว เพื่อเอาเงินท้ายแถวรายละเอียดค่าไฟฟ้าฐาน
-    peak_unit_money = re.search(r'Peak\s+[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text_clean, re.I)
-    if not peak_unit_money:
-        peak_unit_money = re.search(r'Peak\s+[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย).*?\s+([\d,]+\.\d+)\s*$', text_clean, re.M | re.I)
-
-    if peak_unit_money:
-        result["L"] = float(peak_unit_money.group(1).replace(",", ""))
-    else:
-        # รูปแบบที่ 2: สำหรับบิลปกติทั่วไปที่ไม่มีประเภทคำว่า Peak ชัดเจน ให้มองหา [ตัวเลข] หน่วย แล้วดึงยอดเงินรวม
-        base_unit_money = re.search(r'(?<!Peak\s)(?<!Off Peak\s)(?<!Partial Peak\s)(?:^|\s)[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text_clean, re.I)
-        if not base_unit_money:
-            base_unit_money = re.search(r'(?<!Peak\s)(?<!Off Peak\s)(?<!Partial Peak\s)(?:^|\s)[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย).*?\s+([\d,]+\.\d+)\s*$', text_clean, re.M | re.I)
-        
-        if base_unit_money:
-            result["L"] = float(base_unit_money.group(1).replace(",", ""))
+    # 🎯 [ปรับปรุงดักจับค่า L ปลอดภัยร้อยเปอร์เซ็นต์] วนลูปอ่านทีละบรรทัดเพื่อไม่ให้เจอตารางประวัติการใช้ไฟฟ้าหลอก
+    for line in text.split('\n'):
+        # ข้ามบรรทัดที่เป็นตารางประวัติการใช้ไฟฟ้าฝั่งขวาออกไปเลยเด็ดขาด
+        if "ประวัติ" in line or "history" in line.lower():
+            continue
+            
+        # ตรวจสอบรูปแบบที่ 1: เจอคำว่า Peak และ หน่วย ในบรรทัดเดียวกัน (รายละเอียดค่าไฟฟ้าฐาน)
+        if "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+            # ดึงกลุ่มตัวเลขที่มีจุดทศนิยมทั้งหมดในบรรทัดนั้น
+            nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
+            if nums_in_line:
+                # ตัวเลขเงินรวมจะอยู่ท้ายสุดของแถวรายละเอียดค่าไฟฟ้าฐานเสมอ
+                result["L"] = float(nums_in_line[-1].replace(",", ""))
+                break
+                
+        # ตรวจสอบรูปแบบที่ 2: บิลปกติทั่วไป (มีตัวเลข...หน่วย และมีคำว่า พลังงานไฟฟ้า ในแถว หรือโครงสร้างคิดเงิน)
+        elif "พลังงานไฟฟ้า" in line and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+            nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
+            if nums_in_line:
+                result["L"] = float(nums_in_line[-1].replace(",", ""))
+                break
+                
+    # กรณีบิลปกติแบบที่ 2 ที่คำว่า "พลังงานไฟฟ้า" อยู่คนละบรรทัดกับ "หน่วย" (Fallback ป้องกันเหนียว)
+    if result["L"] == 0.0:
+        for line in text.split('\n'):
+            if "ประวัติ" in line or "history" in line.lower(): continue
+            if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]) and not any(k in line.lower() for k in ["peak", "off", "partial"]):
+                nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
+                # ต้องมีอย่างน้อย 2 ชุด (หน่วย + จำนวนเงิน หรือ หน่วย + ราคาต่อหน่วย + จำนวนเงิน)
+                if len(nums_in_line) >= 2:
+                    result["L"] = float(nums_in_line[-1].replace(",", ""))
+                    break
     
     ft = re.search(r'ค่า\s*Ft.*?=\s*[\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)', text, re.I)
     if not ft: ft = re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I)
