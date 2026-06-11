@@ -27,7 +27,6 @@ def extract_exact_pea_bill(file_obj):
     # บล็อกรูปแบบบิลพิเศษ (บิลแบบ P, OP, H)
     # ========================================================
     if is_tou and has_h_mode:
-        # ดึงกลุ่มข้อมูลเงินค่า Demand ฝั่งขวา (ช่อง F, G, H)
         peak_money_match = re.search(r'Peak\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if peak_money_match: result["F"] = float(peak_money_match.group(1).replace(",", ""))
             
@@ -37,12 +36,10 @@ def extract_exact_pea_bill(file_obj):
         h_money_match = re.search(r'(?:H|Holiday)\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if h_money_match: result["H"] = float(h_money_match.group(1).replace(",", ""))
 
-        # ตัดแบ่งโซนข้อความเป็น ท่อนบน และ ท่อนล่าง โดยใช้คำว่า "พลังงานไฟฟ้า" เป็นตัวแบ่ง
         parts = text.split("พลังงานไฟฟ้า")
         demand_part = parts[0]
         energy_part = parts[1] if len(parts) > 1 else text 
 
-        # 1. ค้นหา Demand ท่อนบน (ช่อง C, D, E) สแกนหาเฉพาะใน `demand_part`
         demand_lines = demand_part.split('\n')
         for line in demand_lines:
             nums = re.findall(r"([\d,]+\.\d+)", line)
@@ -56,7 +53,6 @@ def extract_exact_pea_bill(file_obj):
                 if "กว" in line or len(nums) >= 3:
                     result["E"] = float(nums[2].replace(",", "")) if len(nums) >= 3 else float(nums[0].replace(",", ""))
 
-        # 2. ค้นหาหน่วยพลังงานไฟฟ้า (ช่อง I, J, K) บังคับสแกนหาเฉพาะใน `energy_part`
         p_unit = re.search(r'(?:^|\s+)P\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', energy_part, re.I)
         if p_unit: 
             result["I"] = float(p_unit.group(1).replace(",", ""))
@@ -73,6 +69,19 @@ def extract_exact_pea_bill(file_obj):
         if result["K"] == 0.0:
             h_fallback = re.search(r'OP.*?([\d,]+\.\d+)\s+(?:H|Holiday)\s+[\d,]+\.\d+\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', energy_part, re.DOTALL | re.I)
             if h_fallback: result["K"] = float(h_fallback.group(2).replace(",", ""))
+
+    # --- 🎯 [แก้ไข] ลอจิกดึงค่า L ที่แม่นยำขึ้นสำหรับทุกบิล ---
+    if "รายละเอียดค่าไฟฟ้าฐาน" in text and "รวมเงินค่าไฟฟ้า" in text:
+        tariff_table = text.split("รายละเอียดค่าไฟฟ้าฐาน")[1].split("รวมเงินค่าไฟฟ้า")[0]
+        # Priority 1: หา Peak ... หน่วย
+        peak_unit_match = re.search(r'Peak.*?หน่วย.*?([\d,]+\.\d+)', tariff_table, re.I)
+        # Priority 2: หา ... หน่วย (กรณีไม่มี Peak นำหน้า)
+        unit_match = re.search(r'(?:^|\n).*?หน่วย.*?([\d,]+\.\d+)', tariff_table, re.I)
+        
+        if peak_unit_match:
+            result["L"] = float(peak_unit_match.group(1).replace(",", ""))
+        elif unit_match:
+            result["L"] = float(unit_match.group(1).replace(",", ""))
 
     # ========================================================
     # บล็อกรูปแบบที่ 3 และ 4 (บิลธรรมดา ไม่ใช่ TOU)
