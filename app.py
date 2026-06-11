@@ -115,41 +115,35 @@ def extract_exact_pea_bill(file_obj):
                 break
 
     # ========================================================
-    # 🎯 แก้ไขระบบการดึงช่อง L ใหม่ยกแผง (คัดกรองแบบกลุ่มคำสั่ง)
+    # 🎯 แก้ไขระบบการดึงช่อง L (รองรับทั้ง 2 รูปแบบอย่างแม่นยำ)
     # ========================================================
-    # วิธีที่ 1: ตรวจจับบรรทัด Peak ท่อนคิดเงินที่เป็น "หน่วย" โดยกรองเอาเฉพาะแถวที่มีตัวเลขเงินบาทสรุปท้ายบรรทัดจริง ๆ
     found_l = False
     lines = text.split('\n')
+    
+    # 🔗 รูปแบบที่ 1: สำหรับบิล TOU (เช็กจากคำว่า Peak ในบรรทัดหน่วยพลังงานไฟฟ้า)
     for line in lines:
-        # ข้ามตารางประวัติขวา และ ข้ามแถวคิดเงิน กว. (Demand)
         if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or "ประวัติ" in line or "history" in line.lower() or "กว" in line or "กว." in line:
             continue
-        
-        # ค้นหาแถวที่มีคำว่า Peak และ หน่วย ในท่อนพลังงานไฟฟ้า
         if "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
-            # ดึงเฉพาะตัวเลขที่มีจุดทศนิยมในบรรทัดนั้น
             nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
             if nums_in_line:
-                # บลัอบิลแบบเก่า/แบบทั่วไป ตัวเลขท้ายสุดมักจะเป็นจำนวนเงินค่าไฟฟ้าของหน่วยนั้น ๆ
-                # ตรวจเช็กว่าตัวเลขสุดท้ายไม่ใช่ค่าจำนวนหน่วยสะสม (ถ้ามีตัวเลขชุดเดียวหรือสองชุด ให้ใช้ตัวสุดท้าย)
                 potential_val = float(nums_in_line[-1].replace(",", ""))
+                # กรองไม่ให้หยิบเลขหน่วยสะสมฝั่งซ้ายของตาราง
                 if potential_val != 65760.0 and potential_val != 379280.0:
                     result["L"] = potential_val
                     found_l = True
                     break
 
-    # วิธีที่ 2 (Fallback): ค้นหาด้วยโครงสร้าง Regex แบบบล็อกข้อความเพื่อเจาะจงจุดเงินบาทโดยตรง
+    # 🔗 รูปแบบที่ 2: สำหรับบิลธรรมดา (ถ้าหาจากข้อกำหนดแรกไม่เจอ ให้หาจากบรรทัด "... หน่วย" ปกติ)
     if not found_l:
-        match_l = re.search(r'Peak\s+[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
-        if match_l:
-            result["L"] = float(match_l.group(1).replace(",", ""))
-        else:
-            # รูปแบบบิลทางเลือกอื่นๆ สแกนหากลุ่มคำใกล้เคียง
-            match_l_alt = re.search(r'Peak\s+.*?หน่วย.*?\s+([\d,]+\.\d+)', text, re.I)
-            if match_l_alt:
-                val = float(match_l_alt.group(1).replace(",", ""))
-                if val != 65760.0 and val != 379280.0:
-                    result["L"] = val
+        for line in lines:
+            if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or any(k in line for k in ["ประวัติ", "history", "กว.", "กว", "ค่าบริการ", "รวมเงิน", "total"]): 
+                continue
+            if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+                nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
+                if nums_in_line:
+                    result["L"] = float(nums_in_line[-1].replace(",", ""))
+                    break
 
     # ========================================================
     # ดึงค่า Ft, PF และ Sub Total (ลอจิกเดิม ไม่มีการปรับเปลี่ยน)
