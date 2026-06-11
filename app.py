@@ -82,17 +82,6 @@ def extract_exact_pea_bill(file_obj):
         unit_match = re.search(r'([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text)
         if unit_match: result["I"] = float(unit_match.group(1).replace(",", ""))
 
-        base_cost_pattern = r'(?:หน่วย|หนอรย|หนวย)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)'
-        base_cost_match = re.search(base_cost_pattern, text)
-        if base_cost_match:
-            result["L"] = float(base_cost_match.group(1).replace(",", ""))
-        else:
-            for line in lines:
-                if "พลังงานไฟฟ้า" in line:
-                    nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
-                    if len(nums_in_line) >= 4: result["L"] = float(nums_in_line[3].replace(",", ""))
-                    elif len(nums_in_line) == 3: result["L"] = float(nums_in_line[2].replace(",", ""))
-
         if "พลังไฟฟ้าสูงสุด" in text:
             for line in lines:
                 if "พลังไฟฟ้าสูงสุด" in line:
@@ -140,19 +129,16 @@ def extract_exact_pea_bill(file_obj):
                 result["M"] = float(nums_in_op_line[-1].replace(",", ""))
                 break
 
-    # ดึงค่าฐาน Ft และ ยอดรวมค่าไฟพื้นฐาน (L, O, Q)
-    if result["L"] == 0.0:
-        energy = re.search(r'([\d,]+\.\d+)\s+(?:หนอรย|หน่วย|หนวย)', text)
-        if not energy: energy = re.search(r'พลังงานไฟฟ้า.*?([\d,]+\.\d+)\s*บาท', text)
-        if energy: 
-            try:
-                if not is_tou:
-                    base_cost_match = re.search(r'พลังงานไฟฟ้า.*?หน่วย.*?([\d,]+\.\d+)', text)
-                    result["L"] = float(base_cost_match.group(1).replace(",", "")) if base_cost_match else float(energy.group(1).replace(",", ""))
-                else:
-                    result["L"] = float(energy.group(2).replace(",", ""))
-            except:
-                result["L"] = float(energy.group(1).replace(",", ""))
+    # 🎯 [จุดแก้ไขถาวรตามบรีฟเทรนนิ่ง] ดึงค่ายอดเงินพลังงานไฟฟ้าพื้นฐานฝั่งขวา (Column L)
+    # ตรวจสอบรูปแบบที่ 1: มองหาคำว่า Peak [ตัวเลข] หน่วย แล้วกระโดดไปดึงจำนวนเงินท้ายแถว
+    peak_unit_money = re.search(r'Peak\s+[\d,]+\.\d+\s+(?:หน่วย|หนอรย|หนวย).*?\s+([\d,]+\.\d+)', text, re.I)
+    if peak_unit_money:
+        result["L"] = float(peak_unit_money.group(1).replace(",", ""))
+    else:
+        # ตรวจสอบรูปแบบที่ 2: มองหา [ตัวเลข] หน่วย โดดๆ (สกัดคำว่า Peak, Off Peak, Partial Peak ออกไป) แล้วดึงเงินท้ายแถว
+        base_unit_money = re.search(r'(?<!Peak\s)(?<!Off Peak\s)(?<!Partial Peak\s)(?:^|\s)([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย).*?\s+([\d,]+\.\d+)', text, re.I)
+        if base_unit_money:
+            result["L"] = float(base_unit_money.group(2).replace(",", ""))
     
     ft = re.search(r'ค่า\s*Ft.*?=\s*[\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)', text, re.I)
     if not ft: ft = re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I)
