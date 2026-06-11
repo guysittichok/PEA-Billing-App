@@ -24,7 +24,7 @@ def extract_exact_pea_bill(file_obj):
     has_h_mode = " H " in text or "\nH " in text or " H\n" in text or " Holiday " in text
 
     # ========================================================
-    # บล็อกลอจิกเดิมทุกช่อง (ห้ามแตะต้อง)
+    # บล็อกลอจิกเดิมทุกช่อง (ห้ามแตะต้องเด็ดขาด)
     # ========================================================
     if is_tou and has_h_mode:
         peak_money_match = re.search(r'Peak\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
@@ -115,35 +115,42 @@ def extract_exact_pea_bill(file_obj):
                 break
 
     # ========================================================
-    # 🎯 แก้ไขระบบการดึงช่อง L (รองรับทั้ง 2 รูปแบบอย่างแม่นยำ)
+    # 🎯 [แก้ไขถาวร] รวมลอจิกช่อง L ให้รองรับทั้ง 2 รูปแบบอย่างปลอดภัย
     # ========================================================
-    found_l = False
     lines = text.split('\n')
-    
-    # 🔗 รูปแบบที่ 1: สำหรับบิล TOU (เช็กจากคำว่า Peak ในบรรทัดหน่วยพลังงานไฟฟ้า)
+    tou_candidates = []
+    normal_candidates = []
+
     for line in lines:
-        if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or "ประวัติ" in line or "history" in line.lower() or "กว" in line or "กว." in line:
+        # 1. ดักกรองขั้นแรก: บรรทัดต้องไม่มีวันที่ตารางขวา และไม่มีคำสรุปยอดหรือคำว่าประวัติ
+        if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or "ประวัติ" in line or "history" in line.lower():
             continue
-        if "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+        if "กว." in line or "กว" in line or "ค่าบริการ" in line or "รวมเงิน" in line or "total" in line.lower():
+            continue
+
+        # 2. ตรวจสอบกลุ่มคำว่า "หน่วย"
+        if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
             nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
             if nums_in_line:
                 potential_val = float(nums_in_line[-1].replace(",", ""))
-                # กรองไม่ให้หยิบเลขหน่วยสะสมฝั่งซ้ายของตาราง
-                if potential_val != 65760.0 and potential_val != 379280.0:
-                    result["L"] = potential_val
-                    found_l = True
-                    break
+                
+                # บล็อกค่าตัวเลขจำนวนหน่วยสะสมที่มักจะหลุดเข้ามาหลอกระบบ
+                if potential_val in [65760.0, 379280.0, 65760.00, 379280.00]:
+                    continue
 
-    # 🔗 รูปแบบที่ 2: สำหรับบิลธรรมดา (ถ้าหาจากข้อกำหนดแรกไม่เจอ ให้หาจากบรรทัด "... หน่วย" ปกติ)
-    if not found_l:
-        for line in lines:
-            if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or any(k in line for k in ["ประวัติ", "history", "กว.", "กว", "ค่าบริการ", "รวมเงิน", "total"]): 
-                continue
-            if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
-                nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
-                if nums_in_line:
-                    result["L"] = float(nums_in_line[-1].replace(",", ""))
-                    break
+                # แยกเก็บข้อมูลตามประเภทกลุ่มคำ
+                if "peak" in line.lower():
+                    tou_candidates.append(potential_val)
+                else:
+                    normal_candidates.append(potential_val)
+
+    # 3. เลือกค่าไปใส่ช่อง L ตามลำดับความสำคัญ (Priority)
+    if tou_candidates:
+        # ถ้าเป็นบิล TOU ให้หยิบค่าจากบรรทัดที่มีคำว่า Peak มาใช้ก่อน
+        result["L"] = tou_candidates[0]
+    elif normal_candidates:
+        # ถ้าไม่มีคำว่า Peak เลย (บิลธรรมดา) ให้หยิบตัวแรกจากบรรทัดหน่วยธรรมดามาใช้
+        result["L"] = normal_candidates[0]
 
     # ========================================================
     # ดึงค่า Ft, PF และ Sub Total (ลอจิกเดิม ไม่มีการปรับเปลี่ยน)
