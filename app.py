@@ -129,28 +129,29 @@ def extract_exact_pea_bill(file_obj):
                 result["M"] = float(nums_in_op_line[-1].replace(",", ""))
                 break
 
-    # 🎯 [จุดแก้ไขถาวร - เจาะจงบรรทัดพลังงานไฟฟ้าบรรทัดแรกสุด]
+    # 🎯 [แก้ไขถาวร - บล็อกตารางประวัติฝั่งขวาและเจาะจงเฉพาะ Peak หน่วย]
     for line in text.split('\n'):
-        # ข้ามบรรทัดที่ไม่เกี่ยวข้องและบรรทัดที่เป็น กว. (Demand)
-        if "ประวัติ" in line or "history" in line.lower() or "กว." in line or "กว" in line:
+        # 1. ปิดประตูตารางขวา: บรรทัดไหนมีรูปแบบวันที่ประวัติย้อนหลัง (เช่น 31/03/69) หรือมีคำว่าประวัติ ให้ข้ามทันที
+        if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or "ประวัติ" in line or "history" in line.lower():
             continue
             
-        # เลือกบรรทัดที่มีรายละเอียดค่าพลังงานไฟฟ้า (มีคำว่า หน่วย)
-        if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+        # 2. ข้ามบรรทัดคิดเงินส่วนของ กว. (Demand) คัดกรองเอาแต่ส่วน "หน่วย"
+        if "กว." in line or "กว" in line or "ค่าบริการ" in line or "รวมเงิน" in line or "total" in line.lower():
+            continue
+            
+        # 3. เจาะจงสำหรับบิล TOU: ค้นหาคำว่า Peak และ หน่วย ในบรรทัดเดียวกัน
+        if "peak" in line.lower() and any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
             nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
             if nums_in_line:
-                # ป้องกันการดึงค่าบริการรายเดือน หรือยอดสรุปรวมท้ายตาราง
-                if "ค่าบริการ" in line or "รวมเงิน" in line or "total" in line.lower():
-                    continue
-                    
-                # 🔒 ดึงยอดเงินบรรทัดแรกสุดก้อนเดียว (เช่น ยอด Peak พลังงานไฟฟ้า 735,027.55) แล้ว break ทันที!
+                # ดึงตัวเลขเงินรวมตัวสุดท้ายของแถวคิดเงิน Peak หน่วย (เช่น 735,027.55)
                 result["L"] = float(nums_in_line[-1].replace(",", ""))
                 break
-                
-    # ฟังก์ชันสแกนรอบสอง (Fallback สำหรับบิลประเภททั่วไปอื่นๆ)
+
+    # ฟังก์ชันสแกนรอบสอง (Fallback สำหรับบิลประเภททั่วไปที่ไม่ใช่ TOU และไม่มีคำว่า Peak)
     if result["L"] == 0.0:
         for line in text.split('\n'):
-            if any(k in line for k in ["ประวัติ", "history", "กว.", "กว", "ค่าบริการ", "รวมเงิน", "total"]): continue
+            if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or any(k in line for k in ["ประวัติ", "history", "กว.", "กว", "ค่าบริการ", "รวมเงิน", "total"]): 
+                continue
             if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
                 nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
                 if len(nums_in_line) >= 2:
