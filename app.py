@@ -115,42 +115,51 @@ def extract_exact_pea_bill(file_obj):
                 break
 
     # ========================================================
-    # 🎯 [แก้ไขถาวร] รวมลอจิกช่อง L ให้รองรับทั้ง 2 รูปแบบอย่างปลอดภัย
+    # 🎯 [แก้ไขตรงจุด] เจาะจงเฉพาะลอจิกช่อง L ให้แม่นยำขึ้น
     # ========================================================
     lines = text.split('\n')
-    tou_candidates = []
-    normal_candidates = []
+    found_l = False
 
-    for line in lines:
-        # 1. ดักกรองขั้นแรก: บรรทัดต้องไม่มีวันที่ตารางขวา และไม่มีคำสรุปยอดหรือคำว่าประวัติ
-        if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or "ประวัติ" in line or "history" in line.lower():
-            continue
-        if "กว." in line or "กว" in line or "ค่าบริการ" in line or "รวมเงิน" in line or "total" in line.lower():
-            continue
+    # กรองลูปแรกเฉพาะกรณีบิล TOU เท่านั้น (ไม่ยุ่งกับบิลธรรมดา)
+    if is_tou:
+        for line in lines:
+            # ข้ามแถวประวัติขวา และคำสรุปยอด
+            if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or "ประวัติ" in line or "history" in line.lower():
+                continue
+            if "กว." in line or "กว" in line or "ค่าบริการ" in line or "รวมเงิน" in line or "total" in line.lower():
+                continue
 
-        # 2. ตรวจสอบกลุ่มคำว่า "หน่วย"
-        if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
-            nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
-            if nums_in_line:
-                potential_val = float(nums_in_line[-1].replace(",", ""))
+            # สแกนหาบรรทัดกลุ่ม "หน่วย" พลังงานไฟฟ้า
+            if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+                nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
                 
-                # บล็อกค่าตัวเลขจำนวนหน่วยสะสมที่มักจะหลุดเข้ามาหลอกระบบ
-                if potential_val in [65760.0, 379280.0, 65760.00, 379280.00]:
-                    continue
+                # บิล TOU แท้ ยอดเงินบาทสรุปท้ายบรรทัดจะมาพร้อมกับอัตราค่าไฟฟ้าทศนิยม 4 ตำแหน่ง (เช่น 3.1471 หรือ 4.1839)
+                # และในบรรทัดนั้นต้องมีตัวเลขอย่างน้อย 3 ชุด (จำนวนหน่วยใช้, อัตราต่อหน่วย, จำนวนเงินรวม)
+                if len(nums_in_line) >= 3:
+                    # เช็กว่าตัวเลขรองสุดท้ายเป็นอัตราค่าไฟหรือไม่ (ปกติอยู่ระหว่าง 2.0 - 5.0 บาท)
+                    rate_val = float(nums_in_line[-2].replace(",", ""))
+                    if 2.0 <= rate_val <= 5.0:
+                        potential_money = float(nums_in_line[-1].replace(",", ""))
+                        
+                        # ดักความปลอดภัยขั้นสุดท้าย: ต้องไม่ใช่เลขช่อง M และไม่ใช่เลขจำนวนหน่วยใช้
+                        if potential_money != result["M"] and potential_money not in [65760.0, 379280.0]:
+                            # ถ้าเป็นบิลที่มีคำว่า Peak หรือเป็นบรรทัดแรกที่เจอในหมวดหน่วยของบิล TOU
+                            if "peak" in line.lower() or not found_l:
+                                result["L"] = potential_money
+                                found_l = True
+                                if "peak" in line.lower(): 
+                                    break # ถ้าเจอคำว่า Peak ตรง ๆ ให้ล็อกค่านี้ทันที
 
-                # แยกเก็บข้อมูลตามประเภทกลุ่มคำ
-                if "peak" in line.lower():
-                    tou_candidates.append(potential_val)
-                else:
-                    normal_candidates.append(potential_val)
-
-    # 3. เลือกค่าไปใส่ช่อง L ตามลำดับความสำคัญ (Priority)
-    if tou_candidates:
-        # ถ้าเป็นบิล TOU ให้หยิบค่าจากบรรทัดที่มีคำว่า Peak มาใช้ก่อน
-        result["L"] = tou_candidates[0]
-    elif normal_candidates:
-        # ถ้าไม่มีคำว่า Peak เลย (บิลธรรมดา) ให้หยิบตัวแรกจากบรรทัดหน่วยธรรมดามาใช้
-        result["L"] = normal_candidates[0]
+    # Fallback สำหรับบิลประเภทธรรมดาทั่วไป (คงลอจิกเดิมที่เคยถูกไว้ 100%)
+    if not is_tou or not found_l:
+        for line in lines:
+            if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or any(k in line for k in ["ประวัติ", "history", "กว.", "กว", "ค่าบริการ", "รวมเงิน", "total"]): 
+                continue
+            if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
+                nums_in_line = re.findall(r"([\d,]+\.\d+)", line)
+                if nums_in_line:
+                    result["L"] = float(nums_in_line[-1].replace(",", ""))
+                    break
 
     # ========================================================
     # ดึงค่า Ft, PF และ Sub Total (ลอจิกเดิม ไม่มีการปรับเปลี่ยน)
