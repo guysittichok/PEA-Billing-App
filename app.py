@@ -4,7 +4,7 @@ import re
 import pandas as pd
 from io import BytesIO
 import openpyxl
-# 🛠️ นำเข้าเครื่องมือสำหรับปรับฟอนต์และจัดตำแหน่งเซลล์ใน Excel
+# 🛠️ นำเข้าโมดูลจัดการ สี, ฟอนต์ และการจัดวาง ของ openpyxl
 from openpyxl.styles import Font, Alignment
 
 st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
@@ -209,15 +209,15 @@ if uploaded_files:
             wb = openpyxl.load_workbook(template_file)
             ws = wb.active 
 
-            # 🛠️ ตั้งค่าฟอนต์ตัวหนา และการจัดตำแหน่งให้ชิดขวามือของเซลล์
-            bold_font = Font(bold=True)
+            # 🎯 ตั้งค่าฟอนต์หนาสีน้ำเงิน และบังคับทุกอย่างให้ชิดขวามือของเซลล์ทั้งหมด
+            blue_bold_font = Font(name="Calibri", size=11, bold=True, color="0000FF")
             right_alignment = Alignment(horizontal="right", vertical="center")
 
             def write_number(ws, cell_pos, value):
                 val_str = str(value).strip()
                 
-                # บังคับสไตล์ให้เซลล์เป็น ตัวหนา และ ชิดขวา ทุกครั้งที่ทำการเขียนข้อมูล
-                ws[cell_pos].font = bold_font
+                # บังคับใช้สีฟอนต์หนาสีน้ำเงิน และ จัดตำแหน่งชิดขวา สำหรับทุกค่าที่เขียนลงไป
+                ws[cell_pos].font = blue_bold_font
                 ws[cell_pos].alignment = right_alignment
                 
                 if val_str in ["0", "0.0", "None", "", "-", "0"]:
@@ -229,7 +229,7 @@ if uploaded_files:
                             ws[cell_pos] = "-"
                         else:
                             ws[cell_pos] = val
-                            ws[cell_pos].number_format = '#,##0.00' # แสดงผลแบบมีคอมมาคั่นหลักพัน
+                            ws[cell_pos].number_format = '#,##0.00' # แสดงทศนิยม 2 ตำแหน่งและมีคอมมาคั่น
                     except:
                         ws[cell_pos] = "-"
 
