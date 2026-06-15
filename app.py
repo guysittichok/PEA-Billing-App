@@ -83,23 +83,6 @@ def extract_exact_pea_bill(file_obj):
 
             demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
             if demand_cost_match: result["F"] = float(demand_cost_match.group(1).replace(",", ""))
-
-            if result["F"] == 0.0 or result["F"] == 0:
-                # สแกนหา: [ตัวเลขค่า C] -> "กว." -> [ตัวเลขราคาต่อหน่วย] -> [ตัวเลขยอดเงินบาทของ F]
-                # ปรับตัวสแกนหาให้รองรับช่องว่างขนาดใหญ่ (\s+) และดึง group(3) ไปเป็นค่า F
-                gwa_pattern = re.search(r'([\d,]+\.\d+)\s+กว\.\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text)
-                if gwa_pattern:
-                    # เก็บค่า C จากกลุ่มแรก (354.00)
-                        result["C"] = float(gwa_pattern.group(1).replace(",", ""))
-    
-                    # แก้จาก group(2) เป็น group(3) เพื่อสอยยอดเงินบาทตัวสุดท้าย (69,476.04) เข้าช่อง F
-                        result["F"] = float(gwa_pattern.group(3).replace(",", ""))
-            if result["F"] == 0.0 or result["F"] == 0:
-                # มองหาคำว่า "กว." แล้วสอยตัวเลขทศนิยมทุกตัวที่อยู่หลังจากนั้นในบรรทัดเดียวกัน
-                last_ditch_match = re.findall(r'กว\..*?([\d,]+\.\d+)', text)
-                if last_ditch_match:
-                    # หยิบตัวเลขตัวสุดท้ายของกลุ่มที่เจอ (ซึ่งมักจะเป็นยอดเงินบาทท้ายบรรทัด)
-                    result["F"] = float(last_ditch_match[-1].replace(",", ""))
             
     else:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
