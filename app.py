@@ -94,6 +94,12 @@ def extract_exact_pea_bill(file_obj):
     
                     # แก้จาก group(2) เป็น group(3) เพื่อสอยยอดเงินบาทตัวสุดท้าย (69,476.04) เข้าช่อง F
                         result["F"] = float(gwa_pattern.group(3).replace(",", ""))
+            if result["F"] == 0.0 or result["F"] == 0:
+                # มองหาคำว่า "กว." แล้วสอยตัวเลขทศนิยมทุกตัวที่อยู่หลังจากนั้นในบรรทัดเดียวกัน
+                last_ditch_match = re.findall(r'กว\..*?([\d,]+\.\d+)', text)
+                if last_ditch_match:
+                    # หยิบตัวเลขตัวสุดท้ายของกลุ่มที่เจอ (ซึ่งมักจะเป็นยอดเงินบาทท้ายบรรทัด)
+                    result["F"] = float(last_ditch_match[-1].replace(",", ""))
             
     else:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
