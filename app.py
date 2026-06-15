@@ -88,8 +88,7 @@ def extract_exact_pea_bill(file_obj):
                 # สแกนหา: [ตัวเลขค่า C] -> "กว." -> [ตัวเลขราคาต่อหน่วย] -> [ตัวเลขยอดเงินบาทของ F]
                 # ปรับตัวสแกนหาให้รองรับช่องว่างขนาดใหญ่ (\s+) และดึง group(3) ไปเป็นค่า F
                 gwa_pattern = re.search(r'([\d,]+\.\d+)\s+กว\.\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text)
-
-                    if gwa_pattern:
+                if gwa_pattern:
                     # เก็บค่า C จากกลุ่มแรก (354.00)
                         result["C"] = float(gwa_pattern.group(1).replace(",", ""))
     
