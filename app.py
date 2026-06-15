@@ -44,9 +44,9 @@ def extract_exact_pea_bill(file_obj):
         for line in demand_lines:
             nums = re.findall(r"([\d,]+\.\d+)", line)
             if not nums: continue
-            if "Peak" in line and "กว" in line and "Off" not in line:
+            if "P" in line and "กว" in line and "Off" not in line:
                 result["C"] = float(nums[2].replace(",", "")) if len(nums) >= 3 else float(nums[0].replace(",", ""))
-            elif "OP" in line and "กว" in line:
+            elif "OP" in line:
                 result["D"] = float(nums[2].replace(",", "")) if len(nums) >= 3 else float(nums[0].replace(",", ""))
             elif line.strip().startswith("H ") or " H " in line or "Holiday" in line:
                 if "กว" in line or len(nums) >= 3:
