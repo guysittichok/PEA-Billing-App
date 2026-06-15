@@ -209,15 +209,15 @@ if uploaded_files:
             wb = openpyxl.load_workbook(template_file)
             ws = wb.active 
 
-            # 🎯 ตั้งค่าฟอนต์หนาสีน้ำเงิน และบังคับทุกอย่างให้ชิดขวามือของเซลล์ทั้งหมด
-            blue_bold_font = Font(name="Calibri", size=11, bold=True, color="0000FF")
+            # 🎯 ปรับแต่งฟอนต์สีน้ำเงินแบบ "ตัวปกติ (bold=False)" และชิดขวามือทั้งหมด
+            blue_normal_font = Font(name="Calibri", size=11, bold=False, color="0000FF")
             right_alignment = Alignment(horizontal="right", vertical="center")
 
             def write_number(ws, cell_pos, value):
                 val_str = str(value).strip()
                 
-                # บังคับใช้สีฟอนต์หนาสีน้ำเงิน และ จัดตำแหน่งชิดขวา สำหรับทุกค่าที่เขียนลงไป
-                ws[cell_pos].font = blue_bold_font
+                # บังคับใช้สีฟอนต์ตัวปกติสีน้ำเงิน และ จัดตำแหน่งชิดขวา
+                ws[cell_pos].font = blue_normal_font
                 ws[cell_pos].alignment = right_alignment
                 
                 if val_str in ["0", "0.0", "None", "", "-", "0"]:
@@ -229,7 +229,7 @@ if uploaded_files:
                             ws[cell_pos] = "-"
                         else:
                             ws[cell_pos] = val
-                            ws[cell_pos].number_format = '#,##0.00' # แสดงทศนิยม 2 ตำแหน่งและมีคอมมาคั่น
+                            ws[cell_pos].number_format = '#,##0.00' # แสดงรูปแบบทศนิยม 2 ตำแหน่ง
                     except:
                         ws[cell_pos] = "-"
 
