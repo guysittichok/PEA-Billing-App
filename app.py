@@ -83,6 +83,15 @@ def extract_exact_pea_bill(file_obj):
 
             demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
             if demand_cost_match: result["F"] = float(demand_cost_match.group(1).replace(",", ""))
+
+            if result["F"] == 0.0 or result["F"] == 0:
+                # สแกนหา: [ตัวเลขค่า C] -> "กว." -> [ตัวเลขราคาต่อหน่วย] -> [ตัวเลขยอดเงินบาทของ F]
+                gwa_pattern = re.search(r'([\d,]+\.\d+)\s+กว\.?\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
+                if gwa_pattern:
+                    # ดักเผื่อให้เลยครับ เผื่อช่อง C หลุดรอบแรก ก็ให้เก็บค่าจากกลุ่มแรก (354.00) ไปด้วยเลย
+                    result["C"] = float(gwa_pattern.group(1).replace(",", ""))
+                    # สอยยอดเงินบาทตัวท้ายบรรทัด (69,476.04) เข้าช่อง F ทันที
+                    result["F"] = float(gwa_pattern.group(2).replace(",", ""))
             
     else:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
