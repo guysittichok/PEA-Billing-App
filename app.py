@@ -107,24 +107,6 @@ def extract_exact_pea_bill(file_obj):
             result["C"] = float(peak.group(1).replace(",", ""))
             result["F"] = float(peak.group(2).replace(",", ""))
 
-        # 2. แผนสำรองตามที่พี่บอก: ถ้าผ่านด่านแรกแล้วค่า F ยังไม่ได้ (ค้างเป็น 0) ให้เสิร์ชหาด้วยสัญกรณ์ กว. ลอย ๆ
-         if result["F"] == 0.0 or result["F"] == 0:
-                # สแกนหา: [ตัวเลขค่า C] -> "กว." -> [ตัวเลขราคาต่อหน่วย] -> [ตัวเลขยอดเงินบาทของ F]
-                # ปรับตัวสแกนหาให้รองรับช่องว่างขนาดใหญ่ (\s+) และดึง group(3) ไปเป็นค่า F
-                gwa_pattern = re.search(r'([\d,]+\.\d+)\s+กว\.\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text)
-                if gwa_pattern:
-                    # เก็บค่า C จากกลุ่มแรก (354.00)
-                        result["C"] = float(gwa_pattern.group(1).replace(",", ""))
-    
-                    # แก้จาก group(2) เป็น group(3) เพื่อสอยยอดเงินบาทตัวสุดท้าย (69,476.04) เข้าช่อง F
-                        result["F"] = float(gwa_pattern.group(3).replace(",", ""))
-            if result["F"] == 0.0 or result["F"] == 0:
-                # มองหาคำว่า "กว." แล้วสอยตัวเลขทศนิยมทุกตัวที่อยู่หลังจากนั้นในบรรทัดเดียวกัน
-                last_ditch_match = re.findall(r'กว\..*?([\d,]+\.\d+)', text)
-                if last_ditch_match:
-                    # หยิบตัวเลขตัวสุดท้ายของกลุ่มที่เจอ (ซึ่งมักจะเป็นยอดเงินบาทท้ายบรรทัด)
-                    result["F"] = float(last_ditch_match[-1].replace(",", ""))
-
         pp = re.search(r'Partial\s+Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if pp:
             result["D"] = float(pp.group(1).replace(",", ""))
