@@ -86,12 +86,15 @@ def extract_exact_pea_bill(file_obj):
 
             if result["F"] == 0.0 or result["F"] == 0:
                 # สแกนหา: [ตัวเลขค่า C] -> "กว." -> [ตัวเลขราคาต่อหน่วย] -> [ตัวเลขยอดเงินบาทของ F]
-                gwa_pattern = re.search(r'([\d,]+\.\d+)\s+กว\.?\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
-                if gwa_pattern:
-                    # ดักเผื่อให้เลยครับ เผื่อช่อง C หลุดรอบแรก ก็ให้เก็บค่าจากกลุ่มแรก (354.00) ไปด้วยเลย
-                    result["C"] = float(gwa_pattern.group(1).replace(",", ""))
-                    # สอยยอดเงินบาทตัวท้ายบรรทัด (69,476.04) เข้าช่อง F ทันที
-                    result["F"] = float(gwa_pattern.group(2).replace(",", ""))
+                # ปรับตัวสแกนหาให้รองรับช่องว่างขนาดใหญ่ (\s+) และดึง group(3) ไปเป็นค่า F
+                gwa_pattern = re.search(r'([\d,]+\.\d+)\s+กว\.\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text)
+
+                    if gwa_pattern:
+                    # เก็บค่า C จากกลุ่มแรก (354.00)
+                        result["C"] = float(gwa_pattern.group(1).replace(",", ""))
+    
+                    # แก้จาก group(2) เป็น group(3) เพื่อสอยยอดเงินบาทตัวสุดท้าย (69,476.04) เข้าช่อง F
+                        result["F"] = float(gwa_pattern.group(3).replace(",", ""))
             
     else:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
