@@ -29,6 +29,11 @@ def extract_exact_pea_bill(file_obj):
     if is_tou and has_h_mode:
         peak_money_match = re.search(r'Peak\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if peak_money_match: result["F"] = float(peak_money_match.group(1).replace(",", ""))
+
+        if result["F"] == 0.0 or result["F"] == 0:
+            gwa_pattern = re.search(r'([\d,]+\.\d+)\s+กว\.?\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text)
+            if gwa_pattern:
+                result["F"] = float(gwa_pattern.group(2).replace(",", ""))
             
         off_peak_money_match = re.search(r'Off\s+Peak\s+[\d,]+\.\d+\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
         if off_peak_money_match: result["G"] = float(off_peak_money_match.group(1).replace(",", ""))
