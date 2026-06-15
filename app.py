@@ -4,6 +4,8 @@ import re
 import pandas as pd
 from io import BytesIO
 import openpyxl
+# 🛠️ นำเข้าเครื่องมือสำหรับปรับฟอนต์และจัดตำแหน่งเซลล์ใน Excel
+from openpyxl.styles import Font, Alignment
 
 st.set_page_config(page_title="ระบบจัดการบิลค่าไฟฟ้า", layout="wide")
 st.title("PEA Bill Extraction System")
@@ -90,20 +92,13 @@ def extract_exact_pea_bill(file_obj):
             if demand_cost_match: result["F"] = float(demand_cost_match.group(1).replace(",", ""))
 
             if result["F"] == 0.0 or result["F"] == 0:
-                # สแกนหา: [ตัวเลขค่า C] -> "กว." -> [ตัวเลขราคาต่อหน่วย] -> [ตัวเลขยอดเงินบาทของ F]
-                # ปรับตัวสแกนหาให้รองรับช่องว่างขนาดใหญ่ (\s+) และดึง group(3) ไปเป็นค่า F
                 gwa_pattern = re.search(r'([\d,]+\.\d+)\s+กว\.\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)', text)
                 if gwa_pattern:
-                    # เก็บค่า C จากกลุ่มแรก (354.00)
-                        result["C"] = float(gwa_pattern.group(1).replace(",", ""))
-    
-                    # แก้จาก group(2) เป็น group(3) เพื่อสอยยอดเงินบาทตัวสุดท้าย (69,476.04) เข้าช่อง F
-                        result["F"] = float(gwa_pattern.group(3).replace(",", ""))
+                    result["C"] = float(gwa_pattern.group(1).replace(",", ""))
+                    result["F"] = float(gwa_pattern.group(3).replace(",", ""))
             if result["F"] == 0.0 or result["F"] == 0:
-                # มองหาคำว่า "กว." แล้วสอยตัวเลขทศนิยมทุกตัวที่อยู่หลังจากนั้นในบรรทัดเดียวกัน
                 last_ditch_match = re.findall(r'กว\..*?([\d,]+\.\d+)', text)
                 if last_ditch_match:
-                    # หยิบตัวเลขตัวสุดท้ายของกลุ่มที่เจอ (ซึ่งมักจะเป็นยอดเงินบาทท้ายบรรทัด)
                     result["F"] = float(last_ditch_match[-1].replace(",", ""))
             
     else:
@@ -137,22 +132,18 @@ def extract_exact_pea_bill(file_obj):
                 break
 
     # ========================================================
-    # 🎯 [แก้ไขครั้งสุดท้าย] เจาะลอจิกช่อง L ด้วยระบบ Block Search Pattern
+    # ระบบ Block Search Pattern (ช่อง L)
     # ========================================================
     found_l = False
 
     if is_tou:
-        # ล็อกแพทเทิร์นบิล TOU: หาแถวที่มี [คำระบุช่วงเวลาหรือตัวเลขหน่วย] -> [คำว่าหน่วย] -> [อัตราค่าไฟทศนิยม 4 ตำแหน่ง] -> [จำนวนเงินบาทรวมขวาสุด]
-        # ตัวอย่างโครงสร้าง: "Peak 175,680.00 หน่วย 4.1839 735,027.55" หรือ "1,235,200.00 หน่วย 3.1471 3,887,297.92"
         tou_pattern = re.search(r'(?:Peak|[\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)\s+(\d+\.\d{4})\s+([\d,]+\.\d+)', text, re.I)
         if tou_pattern:
             potential_money = float(tou_pattern.group(2).replace(",", ""))
-            # เช็กความปลอดภัยว่ายอดเงินบาทต้องไม่ใช่เลขหน่วยสะสม 65760.0 หรือยอดช่อง M
             if potential_money != result["M"] and potential_money not in [65760.0, 379280.0]:
                 result["L"] = potential_money
                 found_l = True
         
-        # กรณีฉุกเฉิน: ถ้าบิลขยับตำแหน่งจนหลุด Pattern แรก ให้หาบรรทัดที่มีอัตราค่าไฟทศนิยม 4 ตำแหน่งโดยตรง (แต่ข้ามบรรทัดประวัติ)
         if not found_l:
             for line in text.split('\n'):
                 if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or "ประวัติ" in line or "history" in line.lower() or "กว" in line:
@@ -160,7 +151,6 @@ def extract_exact_pea_bill(file_obj):
                 if any(k in line for k in ["หน่วย", "หนอรย", "หนวย"]):
                     nums = re.findall(r"([\d,]+\.\d+)", line)
                     if len(nums) >= 3:
-                        # ตรวจสอบว่ามีค่าอัตราไฟฟ้าทศนิยม 4 ตำแหน่งซ่อนอยู่หรือไม่
                         if any(len(n.split('.')[-1]) == 4 for n in nums):
                             potential_money = float(nums[-1].replace(",", ""))
                             if potential_money != result["M"] and potential_money not in [65760.0, 379280.0]:
@@ -168,7 +158,6 @@ def extract_exact_pea_bill(file_obj):
                                 found_l = True
                                 break
 
-    # Fallback สำหรับบิลประเภทธรรมดาทั่วไป (ลอจิกเดิม ไม่มีการเปลี่ยนแปลง)
     if not is_tou or not found_l:
         for line in text.split('\n'):
             if re.search(r'\d{2}/\d{2}/\d{2,4}', line) or any(k in line for k in ["ประวัติ", "history", "กว.", "กว", "ค่าบริการ", "รวมเงิน", "total"]): 
@@ -180,7 +169,7 @@ def extract_exact_pea_bill(file_obj):
                     break
 
     # ========================================================
-    # ดึงค่า Ft, PF และ Sub Total (ลอจิกเดิม ไม่มีการปรับเปลี่ยน)
+    # ดึงค่า Ft, PF และ Sub Total
     # ========================================================
     ft = re.search(r'ค่า\s*Ft.*?=\s*[\d\.]+\s*บาท/หน่วย\s+([\d,]+\.\d+)', text, re.I)
     if not ft: ft = re.search(r'ค่า\s*Ft.*?([\d,]+\.\d+)', text, re.I)
@@ -200,7 +189,7 @@ def extract_exact_pea_bill(file_obj):
     return result
 
 # ----------------------------------------------------
-# ส่วนโครงสร้าง Excel & Streamlit UI (คงเดิมทุกประการ)
+# ส่วนโครงสร้าง Excel & Streamlit UI 
 # ----------------------------------------------------
 uploaded_files = st.file_uploader("อัปโหลดไฟล์บิล PDF", type=["pdf"], accept_multiple_files=True)
 template_file = st.file_uploader("อัปโหลดไฟล์ Excel ต้นแบบ", type=["xlsx"])
@@ -220,8 +209,17 @@ if uploaded_files:
             wb = openpyxl.load_workbook(template_file)
             ws = wb.active 
 
+            # 🛠️ ตั้งค่าฟอนต์ตัวหนา และการจัดตำแหน่งให้ชิดขวามือของเซลล์
+            bold_font = Font(bold=True)
+            right_alignment = Alignment(horizontal="right", vertical="center")
+
             def write_number(ws, cell_pos, value):
                 val_str = str(value).strip()
+                
+                # บังคับสไตล์ให้เซลล์เป็น ตัวหนา และ ชิดขวา ทุกครั้งที่ทำการเขียนข้อมูล
+                ws[cell_pos].font = bold_font
+                ws[cell_pos].alignment = right_alignment
+                
                 if val_str in ["0", "0.0", "None", "", "-", "0"]:
                     ws[cell_pos] = "-"
                 else:
@@ -231,7 +229,7 @@ if uploaded_files:
                             ws[cell_pos] = "-"
                         else:
                             ws[cell_pos] = val
-                            ws[cell_pos].number_format = '0.00'
+                            ws[cell_pos].number_format = '#,##0.00' # แสดงผลแบบมีคอมมาคั่นหลักพัน
                     except:
                         ws[cell_pos] = "-"
 
