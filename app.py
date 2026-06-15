@@ -73,16 +73,20 @@ def extract_exact_pea_bill(file_obj):
         unit_match = re.search(r'([\d,]+\.\d+)\s+(?:หน่วย|หนอรย|หนวย)', text)
         if unit_match: result["I"] = float(unit_match.group(1).replace(",", ""))
 
-        if "พลังไฟฟ้าสูงสุด" in text:
-            for line in lines:
-                if "พลังไฟฟ้าสูงสุด" in line:
-                    nums = re.findall(r"([\d,]+\.\d+)", line)
-                    if nums:
-                        if len(nums) >= 3: result["C"] = float(nums[2].replace(",", ""))
-                        else: result["C"] = float(nums[-1].replace(",", ""))
+        clean_text = re.sub(r'\s+', ' ', text)
 
-            demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
-            if demand_cost_match: result["F"] = float(demand_cost_match.group(1).replace(",", ""))
+        peak_match = re.search(
+            r'([\d,]+\.\d+)\s*กว\.?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)',
+            clean_text,
+            re.I
+        )
+
+        if peak_match:
+            result["C"] = float(peak_match.group(1).replace(",", ""))
+            result["F"] = float(peak_match.group(3).replace(",", ""))
+        else:
+            result["C"] = 0
+            result["F"] = 0
             
     else:
         peak = re.search(r'Peak\s+([\d,]+\.\d+)\s+กว\.\s+[\d,]+\.\d+\s+([\d,]+\.\d+)', text, re.I)
