@@ -81,7 +81,7 @@ def extract_exact_pea_bill(file_obj):
                         if len(nums) >= 3: result["C"] = float(nums[2].replace(",", ""))
                         else: result["C"] = float(nums[-1].replace(",", ""))
 
-            demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด\s+.*?กว\..*?([\d,]+\.\d+)', text)
+            demand_cost_match = re.search(r'พลังไฟฟ้าสูงสุด[\s\S]*?กว\..*?([\d,]+\.\d+)', text)
             if demand_cost_match: result["F"] = float(demand_cost_match.group(1).replace(",", ""))
             
     else:
