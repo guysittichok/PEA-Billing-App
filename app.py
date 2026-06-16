@@ -220,23 +220,27 @@ if uploaded_files:
 
             def write_number(ws, cell_pos, value):
                 val_str = str(value).strip()
-                
+    
                 # บังคับใช้สีฟอนต์ตัวปกติสีน้ำเงิน และ จัดตำแหน่งชิดขวา
                 ws[cell_pos].font = blue_normal_font
                 ws[cell_pos].alignment = right_alignment
-                
-                if val_str in ["0", "0.0", "None", "", "-", "0"]:
-                    ws[cell_pos] = "-"
+    
+                # กำหนดรูปแบบ Number Format แบบ Accounting (ถ้าเป็น 0 จะแสดงผลเป็นเครื่องหมายขีด - อัตโนมัติ)
+                # และสามารถนำไป บวก ลบ คูณ หาร ใน Excel ได้ปกติ ไม่เกิด #VALUE!
+                accounting_format = '_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)'
+    
+                if val_str in ["None", "", "-"]:
+                    ws[cell_pos] = 0
+                    ws[cell_pos].number_format = accounting_format
                 else:
                     try:
                         val = float(val_str.replace(',', ''))
-                        if val == 0:
-                            ws[cell_pos] = "-"
-                        else:
-                            ws[cell_pos] = val
-                            ws[cell_pos].number_format = '#,##0.00' # แสดงรูปแบบทศนิยม 2 ตำแหน่ง
+                        ws[cell_pos] = val
+                        ws[cell_pos].number_format = accounting_format
                     except:
-                        ws[cell_pos] = "-"
+                        # หากแปลงค่าไม่ได้จริงๆ ให้ใส่เลข 0 ไว้ก่อนเพื่อความปลอดภัยในสูตรคำนวณ
+                        ws[cell_pos] = 0
+                        ws[cell_pos].number_format = accounting_format
 
             for row_idx in range(20, ws.max_row + 1):
                 excel_key = str(ws[f'A{row_idx}'].value).strip()
