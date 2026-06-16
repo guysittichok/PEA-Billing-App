@@ -207,7 +207,12 @@ if uploaded_files:
     if template_file and st.button("สร้างไฟล์ Excel พร้อมข้อมูล"):
         try:
             wb = openpyxl.load_workbook(template_file)
-            ws = wb.active 
+            
+            # 🎯 แก้ไขลอจิกการดึงหน้าชีท เพื่อป้องกันการเกิดบั๊ก NoneType 
+            if wb.active is not None:
+                ws = wb.active
+            else:
+                ws = wb.worksheets[0]
 
             # 🎯 ปรับแต่งฟอนต์สีน้ำเงินแบบ "ตัวปกติ (bold=False)" และชิดขวามือทั้งหมด
             blue_normal_font = Font(name="Calibri", size=11, bold=False, color="0000FF")
@@ -256,6 +261,10 @@ if uploaded_files:
                     write_number(ws, f'P{row_idx}', row['P'])
             
             output = BytesIO()
+            
+            # 🎯 เพิ่มลอจิกเปิดโหมดบังคับคำนวณสูตรออโต้ เพื่อไม่ให้ค่าในสูตรแสดงเป็นช่องว่างตอนดาวน์โหลดออกไปครับ
+            wb.properties.calcMode = 'auto'
+            
             wb.save(output)
             output.seek(0)
             st.success("กรอกข้อมูลลงใน Template เรียบร้อยและรักษาสูตรเดิมแล้ว!")
