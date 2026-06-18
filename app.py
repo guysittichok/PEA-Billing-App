@@ -488,23 +488,17 @@ def create_exact_layout_report(selected_month, selected_year):
     add_run_thai(p_body2, f"\tรวมค่าไฟฟ้าที่เรียกเก็บจากระบบท่อส่งก๊าซฯ ทั้งสิ้น\t\t", size_pt=15)
     add_run_thai(p_body2, f"{total_cost_str}", size_pt=15, bold=True)
     add_run_thai(p_body2, "   บาท\n\n", size_pt=15)
-    add_run_thai(p_body2, "จึงเรียนมาเพื่อโปรดทราบ", size_pt=15)
 
-    # --- ช่องลงชื่ออนุมัติ ---
+    # --- ช่องลงชื่ออนุมัติ (ปรับคำลงท้ายให้อยู่ฝั่งขวารวมกับกล่องลายเซ็น) ---
     p_sign = doc.add_paragraph()
-    p_sign.paragraph_format.space_before = Pt(20)
-    p_sign.paragraph_format.space_after = Pt(10)
-    p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    add_run_thai(p_sign, "(นางสุรีย์พันธ์ คุณากูลสวัสดิ์)      \nผู้จัดการทั่วไป            ", size_pt=15)
+    p_sign.paragraph_format.space_before = Pt(30)
+    p_sign.paragraph_format.space_after = Pt(0)
+    p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT  # ชิดขวาทั้งกลุ่ม
 
-    # --- บันทึกรายการเอกสารแนบท้ายหน้า ---
-    p_attach = doc.add_paragraph()
-    p_attach.paragraph_format.space_before = Pt(6)
-    p_attach.paragraph_format.space_after = Pt(0)
-    add_run_thai(p_attach, "เอกสารแนบที่ 1 ", size_pt=13.5, bold=True)
-    add_run_thai(p_attach, "รายละเอียดในการคำนวณค่าไฟฟ้า\n", size_pt=13.5)
-    add_run_thai(p_attach, "เอกสารแนบที่ 2 ", size_pt=13.5, bold=True)
-    add_run_thai(p_attach, "หนังสือแจ้งค่าไฟฟ้าของการไฟฟ้าส่วนภูมิภาค", size_pt=13.5)
+    # จัดวางคำว่า "จึงเรียนมาเพื่อโปรดทราบ" และลายเซ็นไว้ด้วยกันทางขวาอย่างสวยงาม
+    add_run_thai(p_sign, "จึงเรียนมาเพื่อโปรดทราบ            \n\n\n", size_pt=15)
+    add_run_thai(p_sign, "(นางสุรีย์พันธ์ คุณากูลสวัสดิ์)      \n", size_pt=15)
+    add_run_thai(p_sign, "ผู้จัดการทั่วไป            ", size_pt=15)
 
     doc_io = BytesIO()
     doc.save(doc_io)
