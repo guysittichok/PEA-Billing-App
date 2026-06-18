@@ -278,159 +278,216 @@ if uploaded_files:
             st.error(f"เกิดข้อผิดพลาด: {e}")
 
 # ================================================================
-# 3. โค้ดส่วนสร้างรายงานอัตโนมัติ (แทรกตารางสรุปสีส้มลงในไฟล์ต้นแบบโดยตรง)
+# 3. โค้ดส่วนสร้างรายงานอัตโนมัติ (เวอร์ชันย้อนกลับแบบเดิม - เน้นเรียงหน้าเป๊ะหน้าเดียว ไม่ Error)
 # ================================================================
-import os
+import datetime
 from io import BytesIO
 from docx import Document
-from docx.shared import Inches, Pt
+from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.oxml import parse_xml
-from docx.oxml.ns import nsdecls
+from docx.oxml import OxmlElement, parse_xml
+from docx.oxml.ns import qn, nsdecls
 
-# ฟังก์ชันช่วยบังคับอักษรภาษาไทย/Complex Script สำหรับตารางที่สร้างขึ้นใหม่
-def set_thai_font_to_run(run, font_name="TH Sarabun PSK", size_pt=12, bold=False):
+def add_run_thai(paragraph, text, font_name="TH Sarabun PSK", size_pt=16, bold=False, color_rgb=None):
+    run = paragraph.add_run(text)
     run.font.name = font_name
     run.font.size = Pt(size_pt)
     run.bold = bold
+    if color_rgb:
+        run.font.color.rgb = color_rgb
+    
+    # บังคับให้ Word รับรู้ว่าเป็นฟอนต์ภาษาไทย (Complex Script)
     rPr = run._r.get_or_add_rPr()
-    rFonts = parse_xml(f'<w:rFonts {nsdecls("w")} w:ascii="{font_name}" w:hAnsi="{font_name}" w:cs="{font_name}"/>')
+    rFonts = OxmlElement('w:rFonts')
+    rFonts.set(qn('w:ascii'), font_name)
+    rFonts.set(qn('w:hAnsi'), font_name)
+    rFonts.set(qn('w:cs'), font_name)
     rPr.append(rFonts)
+    return run
 
-# ฟังก์ชันระบายสีพื้นหลังเซลล์ตาราง (Shading) สำหรับหัวตารางสีส้มพีช
 def set_cell_background(cell, fill_hex):
     shading_elm = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{fill_hex}"/>')
     cell._tc.get_or_add_tcPr().append(shading_elm)
 
-def insert_summary_table_to_memo(template_path, table_data):
-    # โหลดไฟล์ต้นแบบที่มีโครงสร้างและโลโก้ ปตท. อยู่แล้วขึ้นมาทำงาน
-    doc = Document(template_path)
+def create_simple_memo_report(selected_month, selected_year):
+    doc = Document()
     
-    # วนลูปหาจุดแทรกตาราง: เราจะแทรกตารางสีส้มพีชไว้ใต้พารากราฟเนื้อความตอนแรก
-    target_p_index = -1
-    for idx, paragraph in enumerate(doc.paragraphs):
-        if "รายละเอียดการคำนวณตามเอกสารแนบ" in paragraph.text:
-            target_p_index = idx
-            break
-            
-    if target_p_index != -1:
-        # ดึงพารากราฟเป้าหมายออกมา เพื่อใช้อ้างอิงตำแหน่งในการวางตาราง
-        target_p = doc.paragraphs[target_p_index]
-        
-        # สร้างตารางข้อมูลสรุปขนาด 3 แถว 7 คอลัมน์ (สำหรับ Header) ขึ้นมาใหม่
-        calc_table = doc.add_table(rows=3, cols=7)
-        calc_table.style = 'Table Grid'
-        calc_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-        
-        # ย้ายตำแหน่งตารางไปอยู่ต่อท้ายพารากราฟเนื้อความทันที
-        target_p._p.addnext(calc_table._tbl)
-        
-        # กำหนดสีหัวตารางและท้ายตารางเป็นสีส้มพีชตามภาพ Excel
-        peach_color = "FCE4D6"
-        hdr_cells = calc_table.rows[0].cells
-        hdr_cells_l2 = calc_table.rows[1].cells
-        hdr_cells_l3 = calc_table.rows[2].cells
-        
-        # 1. Merge และจัดฟอร์มหัวข้อ "พื้นที่ใช้ไฟฟ้า"
-        hdr_cells[0].merge(hdr_cells_l2[0]).merge(hdr_cells_l3[0])
-        set_cell_background(hdr_cells[0], peach_color)
-        p_c0 = hdr_cells[0].paragraphs[0]
-        p_c0.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        set_thai_font_to_run(p_c0.add_run("พื้นที่ใช้ไฟฟ้า"), size_pt=12, bold=True)
-        
-        # 2. Merge หัวข้อหลักชั้นบนสุด 3 กลุ่ม
-        headers_top = [("ไฟฟ้าที่รับจาก PEA", 1, 2), ("ไฟฟ้าที่รับจาก GSP", 3, 4), ("รวมไฟฟ้าที่รับทั้งหมด", 5, 6)]
-        for text, c_start, c_end in headers_top:
-            cell = hdr_cells[c_start].merge(hdr_cells[c_end])
-            set_cell_background(cell, peach_color)
-            p = cell.paragraphs[0]
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            set_thai_font_to_run(p.add_run(text), size_pt=12, bold=True)
-            
-        # 3. ใส่หัวข้อย่อยและหน่วยวัดในแถวที่ 2 และ 3
-        sub_headers = ["ปริมาณไฟฟ้า", "ค่าใช้จ่าย", "ปริมาณไฟฟ้า", "ค่าใช้จ่าย", "ปริมาณไฟฟ้า", "ค่าใช้จ่าย"]
-        sub_units = ["(kWh)", "(บาท)", "(kWh)", "(บาท)", "(kWh)", "(บาท)"]
-        for idx in range(6):
-            c2 = hdr_cells_l2[idx+1]
-            c3 = hdr_cells_l3[idx+1]
-            set_cell_background(c2, peach_color)
-            set_cell_background(c3, peach_color)
-            
-            p_h2 = c2.paragraphs[0]
-            p_h3 = c3.paragraphs[0]
-            p_h2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            p_h3.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            
-            set_thai_font_to_run(p_h2.add_run(sub_headers[idx]), size_pt=10, bold=True)
-            set_thai_font_to_run(p_h3.add_run(sub_units[idx]), size_pt=10, bold=True)
-            
-        # 4. ลูปกรอกข้อมูลดิบที่ส่งมาจากระบบ Excel ลงในแถวต่อๆ ไป
-        for row_data in table_data:
-            row_cells = calc_table.add_row().cells
-            is_total = (row_data[0] == "Total")
-            for idx, val in enumerate(row_data):
-                cell = row_cells[idx]
-                if is_total:
-                    set_cell_background(cell, peach_color)
-                p = cell.paragraphs[0]
-                # คอลัมน์แรกจัดกึ่งกลาง คอลัมน์ตัวเลขจัดชิดขวาเพื่อความสวยงาม
-                if idx == 0:
-                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    set_thai_font_to_run(p.add_run(val), size_pt=11, bold=is_total)
-                else:
-                    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                    set_thai_font_to_run(p.add_run(val), size_pt=11, bold=is_total)
-                    
-        # ใส่เว้นวรรคขนาดเล็กหลังตารางเพื่อให้ระยะห่างพอดิบพอดีในหน้าเดียว
-        spacer_p = doc.add_paragraph()
-        spacer_p.paragraph_format.space_before = Pt(6)
-        spacer_p.paragraph_format.space_after = Pt(0)
-        calc_table._tbl.addnext(spacer_p._p)
+    # บีบระยะขอบกระดาษให้แคบลงเล็กน้อย (0.75 นิ้ว) เพื่อเซฟพื้นที่ให้จบในหน้าเดียวแน่นอน
+    for section in doc.sections:
+        section.top_margin = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
+        section.left_margin = Inches(0.75)
+        section.right_margin = Inches(0.75)
 
-    # เซฟไฟล์ออกมาเป็นข้อมูลแบบ Stream เพื่อให้ดาวน์โหลดหน้าเว็บได้ทันที
+    # --- ส่วนหัวข้อบันทึกข้อความ (ย้อนกลับมาใช้แบบข้อความธรรมดา ไม่ใช้ตารางซ้อนตาราง) ---
+    p_top_title = doc.add_paragraph()
+    p_top_title.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p_top_title.paragraph_format.space_after = Pt(4)
+    add_run_thai(p_top_title, "MEMORANDUM", size_pt=18, bold=True)
+
+    # ข้อมูลเลขที่ และ วันที่
+    p_meta = doc.add_paragraph()
+    p_meta.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p_meta.paragraph_format.space_after = Pt(12)
+    add_run_thai(p_meta, "ที่ / No:  - \t\t\t\t\t\t\n", bold=True)
+    today_str = datetime.datetime.now().strftime(f"%d {selected_month} {selected_year}")
+    add_run_thai(p_meta, "วันที่ / Date:  ", bold=True)
+    add_run_thai(p_meta, today_str)
+
+    # --- ส่วนตารางบันทึกข้อความหลัก (หัวข้อ จาก, เรียน, สำเนา, เรื่อง) ---
+    info_table = doc.add_table(rows=4, cols=1)
+    info_table.style = 'Table Grid'
+    info_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    
+    headers = [
+        ("หน่วยงานผู้ส่ง / From: ", "ส่วนบริหารกลยุทธ์และแผนการผลิต (กผ.)"),
+        ("เรียน / To: ", "ผจ.สทต. / ผจ.บท ผ่าน ผจ.กผ."),
+        ("สำเนา / CC: ", "ผจ.ปท.3, ผจ.ชก., ผจ.บฟ."),
+        ("เรื่อง / Subject: ", f"แจ้งสรุปค่าไฟฟ้าofสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year}")
+    ]
+    
+    for idx, (label, val) in enumerate(headers):
+        cell = info_table.cell(idx, 0)
+        p = cell.paragraphs[0]
+        p.paragraph_format.space_before = Pt(3)
+        p.paragraph_format.space_after = Pt(3)
+        p.paragraph_format.left_indent = Inches(0.1)
+        add_run_thai(p, label, bold=True)
+        add_run_thai(p, val)
+
+    # --- ส่วนเนื้อความตอนต้น ---
+    p_body1 = doc.add_paragraph()
+    p_body1.paragraph_format.space_before = Pt(14)
+    p_body1.paragraph_format.space_after = Pt(12)
+    p_body1.paragraph_format.first_line_indent = Inches(0.5)
+    p_body1.paragraph_format.line_spacing = 1.15
+    add_run_thai(p_body1, f"ส่วนบริหารกลยุทธ์และแผนการผลิต ฝ่ายบริหารเทคนิคและแผนการผลิต ขอนำส่งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year} รายละเอียดการคำนวณตามเอกสารแนบ")
+
+    # --- ส่วนตารางข้อมูลสรุปสีส้มพีช (สร้างเรียงต่อลงมาตรงๆ ไม่ซ้อนในตารางอื่น) ---
+    calc_table = doc.add_table(rows=3, cols=7)
+    calc_table.style = 'Table Grid'
+    calc_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    
+    peach_color = "FCE4D6"
+    
+    # Merge คอลัมน์แรก "พื้นที่ใช้ไฟฟ้า"
+    calc_table.rows[0].cells[0].merge(calc_table.rows[1].cells[0]).merge(calc_table.rows[2].cells[0])
+    set_cell_background(calc_table.rows[0].cells[0], peach_color)
+    p_c0 = calc_table.rows[0].cells[0].paragraphs[0]
+    p_c0.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_run_thai(p_c0, "พื้นที่ใช้ไฟฟ้า", size_pt=12, bold=True)
+    
+    # Merge หัวข้อหลักชั้นบน 3 กลุ่ม
+    headers_top = [("ไฟฟ้าที่รับจาก PEA", 1, 2), ("ไฟฟ้าที่รับจาก GSP", 3, 4), ("รวมไฟฟ้าที่รับทั้งหมด", 5, 6)]
+    for text, c_start, c_end in headers_top:
+        cell = calc_table.rows[0].cells[c_start].merge(calc_table.rows[0].cells[c_end])
+        set_cell_background(cell, peach_color)
+        p = cell.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        add_run_thai(p, text, size_pt=12, bold=True)
+    
+    # ใส่หัวข้อย่อยและหน่วยวัด (แถว 2 และ 3)
+    sub_headers = ["ปริมาณไฟฟ้า", "ค่าใช้จ่าย", "ปริมาณไฟฟ้า", "ค่าใช้จ่าย", "ปริมาณไฟฟ้า", "ค่าใช้จ่าย"]
+    sub_units = ["(kWh)", "(บาท)", "(kWh)", "(บาท)", "(kWh)", "(บาท)"]
+    for idx in range(6):
+        c2 = calc_table.rows[1].cells[idx+1]
+        c3 = calc_table.rows[2].cells[idx+1]
+        set_cell_background(c2, peach_color)
+        set_cell_background(c3, peach_color)
+        
+        p2 = c2.paragraphs[0]
+        p3 = c3.paragraphs[0]
+        p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        add_run_thai(p2, sub_headers[idx], size_pt=10, bold=True)
+        add_run_thai(p3, sub_units[idx], size_pt=10, bold=True)
+
+    # ชุดข้อมูลตัวเลขดิบอ้างอิงจาก Excel
+    table_data = [
+        ["DPCU", "26,218.00", "121,418.83", "-", "-", "26,218.00", "121,418.83"],
+        ["New DPCU", "60,451.30", "279,957.51", "-", "-", "60,451.30", "279,957.51"],
+        ["OCS1", "132,224.00", "612,345.83", "-", "-", "132,224.00", "612,345.83"],
+        ["OCS2", "111,774.00", "517,639.33", "-", "-", "111,774.00", "517,639.33"],
+        ["OCS3", "421,808.00", "1,950,445.75", "-", "-", "421,808.00", "1,950,445.75"],
+        ["Total", "752,475.30", "3,481,807.25", "-", "-", "752,475.30", "3,481,807.25"]
+    ]
+    total_cost_str = table_data[-1][-1]
+
+    # กรอกข้อมูลลงตารางสรุป
+    for row_data in table_data:
+        row_cells = calc_table.add_row().cells
+        is_total = (row_data[0] == "Total")
+        for idx, val in enumerate(row_data):
+            cell = row_cells[idx]
+            if is_total:
+                set_cell_background(cell, peach_color)
+            p = cell.paragraphs[0]
+            p.paragraph_format.space_after = Pt(2)
+            if idx == 0:
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                add_run_thai(p, val, size_pt=11, bold=is_total)
+            else:
+                p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                add_run_thai(p, val, size_pt=11, bold=is_total)
+
+    # --- ส่วนเนื้อความตอนท้าย ---
+    p_body2 = doc.add_paragraph()
+    p_body2.paragraph_format.space_before = Pt(14)
+    p_body2.paragraph_format.space_after = Pt(4)
+    p_body2.paragraph_format.line_spacing = 1.15
+    add_run_thai(p_body2, f"\tอัตราค่าไฟฟ้าอ้างอิง ราคา PEA Rate ณ เดือน {selected_month} {selected_year} = ")
+    add_run_thai(p_body2, "4.6311", bold=True)
+    add_run_thai(p_body2, " บาท / kWh  รายละเอียดตามเอกสารแนบ\n")
+    add_run_thai(p_body2, f"\tรวมค่าไฟฟ้าที่เรียกเก็บจากระบบท่อส่งก๊าซฯ ทั้งสิ้น\t\t")
+    add_run_thai(p_body2, f"{total_cost_str}", bold=True)
+    add_run_thai(p_body2, "   บาท\n\n")
+    add_run_thai(p_body2, "จึงเรียนมาเพื่อโปรดทราบ")
+
+    # --- ส่วนลงชื่อท้ายประโยค ---
+    p_sign = doc.add_paragraph()
+    p_sign.paragraph_format.space_before = Pt(12)
+    p_sign.paragraph_format.space_after = Pt(14)
+    p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    add_run_thai(p_sign, "(นางสุรีย์พันธ์ คุณากูลสวัสดิ์)      \nผู้จัดการทั่วไป            ")
+
+    # --- ส่วนเอกสารแนบ ---
+    p_attach = doc.add_paragraph()
+    p_attach.paragraph_format.space_before = Pt(4)
+    p_attach.paragraph_format.space_after = Pt(0)
+    add_run_thai(p_attach, "เอกสารแนบที่ 1 ", bold=True)
+    add_run_thai(p_attach, "รายละเอียดในการคำนวณค่าไฟฟ้า\n")
+    add_run_thai(p_attach, "เอกสารแนบที่ 2 ", bold=True)
+    add_run_thai(p_attach, "หนังสือแจ้งค่าไฟฟ้าของการไฟฟ้าส่วนภูมิภาค")
+
+    # บันทึกข้อมูลลง Memory Stream
     doc_io = BytesIO()
     doc.save(doc_io)
     doc_io.seek(0)
     return doc_io
 
-# --- พาร์ทอินเตอร์เฟซแสดงผลบนหน้าเว็บ Streamlit ---
-if uploaded_files:
-    st.markdown("---")
-    st.subheader("📊 ระบบออกรายงานสรุปบันทึกข้อความ (Memo Report)")
+# --- ส่วน UI บนหน้าเว็บ Streamlit (ไม่มีระบบตรวจเช็กไฟล์รูปภาพหรือไฟล์อื่นให้ยุ่งยาก) ---
+st.markdown("---")
+st.subheader("📊 ระบบออกรายงานสรุปบันทึกข้อความ (Memo Report)")
+
+col1, col2 = st.columns(2)
+with col1:
+    months_list = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+    selected_month = st.selectbox("เลือกประจำเดือน", months_list, index=3)
+with col2:
+    years_list = [str(y) for y in range(2565, 2575)]
+    selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4)
     
-    # มองหาไฟล์ต้นแบบ .doc หรือ .docx ที่ผู้ใช้อัปโหลดเข้ามาในระบบตอนแรกโดยอัตโนมัติ
-    memo_template = None
-    for f in uploaded_files:
-        if f.name.startswith("Memo") and f.name.endswith((".doc", ".docx")):
-            memo_template = f
-            break
-            
-    if memo_template is not None:
-        st.success(f"✅ ตรวจพบไฟล์ฟอร์มต้นแบบเรียบร้อย: `{memo_template.name}` (โลโก้และข้อมูลหัวกระดาษจะถูกรักษาไว้ตามฟอร์มนี้)")
-        
-        # ดึงตารางจำลองค่ามาจาก Excel (ในงานจริงค่าตรงนี้จะคำนวณมาจากดาต้าเฟรมของคุณ)
-        mock_excel_table = [
-            ["DPCU", "26,218.00", "121,418.83", "-", "-", "26,218.00", "121,418.83"],
-            ["New DPCU", "60,451.30", "279,957.51", "-", "-", "60,451.30", "279,957.51"],
-            ["OCS1", "132,224.00", "612,345.83", "-", "-", "132,224.00", "612,345.83"],
-            ["OCS2", "111,774.00", "517,639.33", "-", "-", "111,774.00", "517,639.33"],
-            ["OCS3", "421,808.00", "1,950,445.75", "-", "-", "421,808.00", "1,950,445.75"],
-            ["Total", "752,475.30", "3,481,807.25", "-", "-", "752,475.30", "3,481,807.25"]
-        ]
-        
-        if st.button("📝 แทรกตารางสรุปและเรียงหน้าอัตโนมัติ"):
-            try:
-                # ส่งไฟล์ Word ต้นแบบที่อัปโหลดและข้อมูลตารางเข้าไปทำงาน
-                word_output = insert_summary_table_to_memo(memo_template, mock_excel_table)
-                st.success("รวมตารางสรุปและเรียงหน้ากระดาษจบในหน้าเดียวสำเร็จ!")
-                st.download_button(
-                    label="📥 ดาวน์โหลดไฟล์บันทึกข้อความสมบูรณ์ (.docx)",
-                    data=word_output,
-                    file_name="Memo_สรุปค่าไฟฟ้า_ประจำเดือน.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-            except Exception as e:
-                st.error(f"เกิดข้อผิดพลาดในการประมวลผลโครงสร้าง: {e}")
-    else:
-        st.warning("⚠️ กรุณาอัปโหลดไฟล์ฟอร์มบันทึกข้อความต้นแบบ (ไฟล์ที่มีคำว่า Memo ขึ้นต้น) เข้าระบบ Streamlit เพื่อให้โค้ดดึงไปใช้งานด้วยครับ")
+if st.button("📝 สร้างรายงาน Word (จบในหน้าเดียว)"):
+    try:
+        word_output = create_simple_memo_report(selected_month, selected_year)
+        st.success(f"สร้างบันทึกข้อความสำเร็จแล้ว! (โครงสร้างปลอดภัย ไม่รวนแน่นอน)")
+        st.download_button(
+            label="📥 ดาวน์โหลดไฟล์ Memo (.docx)",
+            data=word_output,
+            file_name=f"Memo_สรุปค่าไฟฟ้า_{selected_month}_{selected_year}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as e:
+        st.error(f"เกิดข้อผิดพลาดในการประมวลผล: {e}")
