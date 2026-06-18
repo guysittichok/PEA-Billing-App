@@ -278,13 +278,13 @@ if uploaded_files:
             st.error(f"เกิดข้อผิดพลาด: {e}")
 
 # ================================================================
-# 3. โค้ดส่วนสร้างรายงานอัตโนมัติ (เวอร์ชันแก้ไขเลย์เอาต์ "ที่ / No:" ชิดขวาแท้จริง)
+# 3. โค้ดส่วนสร้างรายงานอัตโนมัติ (เวอร์ชันแก้ไขบั๊กชิดซ้าย - ล็อกตำแหน่งขวาแท้จริง)
 # ================================================================
 import datetime
 from io import BytesIO
 from docx import Document
 from docx.shared import Inches, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn, nsdecls
@@ -329,16 +329,15 @@ def apply_custom_info_borders(table, color_hex="D3D3D3", size="4"):
         f'  <w:right w:val="none"/>'
         f'  <w:insideH w:val="single" w:sz="{size}" w:space="0" w:color="{color_hex}"/>'
         f'  <w:insideV w:val="none"/>'
+        f'</w:tblBorders>'
     )
-    # ตรวจสอบโครงสร้างและปิดแท็ก XML อย่างสมบูรณ์ 100%
-    xml_string += f'</w:tblBorders>'
     tblBorders = parse_xml(xml_string)
     tblPr.append(tblBorders)
 
 def create_exact_layout_report(selected_month, selected_year):
     doc = Document()
     
-    # ระยะขอบมาตรฐาน 1 นิ้วรอบด้าน
+    # กำหนดระยะขอบหน้ากระดาษมาตรฐาน 1 นิ้วรอบด้าน (พื้นที่พิมพ์กว้าง 6.5 นิ้วพอดี)
     for section in doc.sections:
         section.top_margin = Inches(1.0)
         section.bottom_margin = Inches(1.0)
@@ -352,53 +351,52 @@ def create_exact_layout_report(selected_month, selected_year):
     p_top_title.paragraph_format.space_after = Pt(4)
     add_run_thai(p_top_title, " MEMORANDUM ", size_pt=15, bold=True)
     
-    # --- ปรับโครงสร้างตารางหัวข้อเป็น 2 คอลัมน์เพื่อแก้บั๊ก "ที่ / No:" สลับฝั่ง ---
-    # บรรทัดแรกแยกคอลัมน์ซ้าย-ขวาเด็ดขาด บรรทัดที่เหลือค่อยสั่ง Merge เพื่อให้ได้เส้นแนวนอนยาวเท่ากันสวยงาม
-    info_table = doc.add_table(rows=5, cols=2)
+    # --- ปรับโครงสร้างตารางข้อมูลหัวข้อเป็น 1 คอลัมน์เต็ม เพื่อป้องกันเลย์เอาต์เอียงซ้าย ---
+    info_table = doc.add_table(rows=5, cols=1)
     info_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     info_table.autofit = False
-    
-    # กำหนดความกว้างคอลัมน์ซ้ายและขวาให้สมดุล (รวมกันได้ 6.5 นิ้วพอดี)
-    info_table.columns[0].width = Inches(3.25)
-    info_table.columns[1].width = Inches(3.25)
+    info_table.columns[0].width = Inches(6.5) # แผ่เต็มความกว้างหน้ากระดาษพอดี
     
     apply_custom_info_borders(info_table, color_hex="D3D3D3", size="4")
     
     today_str = datetime.datetime.now().strftime(f"%d {selected_month} {selected_year}")
     
-    # 1. จัดการบรรทัดแรกแยกอิสระจากกัน (แก้จุดพังเรื่องชิดซ้าย-ขวา)
-    cell_no = info_table.cell(0, 0)
-    set_cell_margins(cell_no, top=30, bottom=30, left=10, right=10)
-    p_no = cell_no.paragraphs[0]
-    p_no.alignment = WD_ALIGN_PARAGRAPH.LEFT # "ที่ / No" ล็อกชิดซ้าย
-    add_run_thai(p_no, "ที่ / No:  -", size_pt=14.5, bold=True)
+    # บรรทัดที่ 1: ใช้ระบบ Right Tab Stop ล็อกตำแหน่งขวา-ซ้าย ขจัดปัญหาเรื่องแท็บเคลื่อน
+    cell_first = info_table.cell(0, 0)
+    set_cell_margins(cell_first, top=30, bottom=30, left=10, right=10)
+    p_first = cell_first.paragraphs[0]
+    p_first.paragraph_format.space_before = Pt(0)
+    p_first.paragraph_format.space_after = Pt(0)
+    p_first.alignment = WD_ALIGN_PARAGRAPH.LEFT
     
-    cell_date = info_table.cell(0, 1)
-    set_cell_margins(cell_date, top=30, bottom=30, left=10, right=10)
-    p_date = cell_date.paragraphs[0]
-    p_date.alignment = WD_ALIGN_PARAGRAPH.RIGHT # "วันที่ / Date" ล็อกชิดขวาแท้จริง!
-    add_run_thai(p_date, f"วันที่ / Date:  {today_str}", size_pt=14.5, bold=False)
+    # ล็อกระยะแท็บหยุดตัวที่หนึ่งไว้ที่ตำแหน่งขวาขอบกระดาษพอดี (6.5 นิ้ว) และสั่งให้ข้อความชิดขวาจากจุดนั้น
+    tab_stops = p_first.paragraph_format.tab_stops
+    tab_stops.add_tab_stop(Inches(6.5), alignment=WD_TAB_ALIGNMENT.RIGHT)
     
-    # 2. จัดการบรรทัดที่ 2-5 โดยการ Merge คอลัมน์ซ้ายขวาเข้าด้วยกันเพื่อให้เนื้อหายาวได้ปกติ
-    other_headers = [
+    add_run_thai(p_first, "ที่ / No:  -", size_pt=14.5, bold=True)
+    # ใส่ \t เพื่อดีดวันที่ไปอยู่ที่ขอบขวาสุดของเอกสารอย่างแม่นยำ
+    add_run_thai(p_first, f"\tวันที่ / Date:  {today_str}", size_pt=14.5)
+
+    # บรรทัดที่ 2-5: แสดงข้อมูลหัวข้ออื่น ๆ ตามปกติ
+    headers_layout = [
         ("หน่วยงานผู้ส่ง / From:  ", "ส่วนบริหารกลยุทธ์และแผนการผลิต (กผ.)"),
         ("เรียน / To:  ", "ผจ.สทต. / ผจ.บท ผ่าน ผจ.กผ."),
         ("สำเนา / CC:  ", "ผจ.ปท.3, ผจ.ชก., ผจ.บฟ."),
         ("เรื่อง / Subject:  ", f"แจ้งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year}")
     ]
     
-    for idx, (label, val) in enumerate(other_headers, start=1):
-        merged_cell = info_table.cell(idx, 0).merge(info_table.cell(idx, 1))
-        set_cell_margins(merged_cell, top=30, bottom=30, left=10, right=10)
-        p = merged_cell.paragraphs[0]
+    for idx, row_data in enumerate(headers_layout, start=1):
+        cell = info_table.cell(idx, 0)
+        set_cell_margins(cell, top=30, bottom=30, left=10, right=10)
+        p = cell.paragraphs[0]
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after = Pt(0)
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         
-        add_run_thai(p, label, size_pt=14.5, bold=True)
-        add_run_thai(p, val, size_pt=14.5)
+        add_run_thai(p, row_data[0], size_pt=14.5, bold=True)
+        add_run_thai(p, row_data[1], size_pt=14.5)
 
-    # ขีดเส้นใต้ดำทึบหนาแยกพาร์ทส่วนหัว
+    # ขีดเส้นใต้ดำทึบหนาแยกพาร์ทส่วนหัวออกจากเนื้อหา
     p_line = doc.add_paragraph()
     p_line.paragraph_format.space_before = Pt(2)
     p_line.paragraph_format.space_after = Pt(10)
@@ -493,7 +491,7 @@ def create_exact_layout_report(selected_month, selected_year):
     add_run_thai(p_body2, f"{total_cost_str}", size_pt=15, bold=True)
     add_run_thai(p_body2, "   บาท", size_pt=15)
 
-    # --- ช่องลงชื่ออนุมัติ (ย้าย "จึงเรียนมาเพื่อโปรดทราบ" ชิดขวาเรียบร้อย และไม่มีเอกสารแนบท้ายหน้า) ---
+    # --- ช่องลงชื่ออนุมัติ (ย้าย "จึงเรียนมาเพื่อโปรดทราบ" ชิดขวาเรียบร้อย และตัดรายการเอกสารแนบออกแล้ว) ---
     p_sign = doc.add_paragraph()
     p_sign.paragraph_format.space_before = Pt(30)
     p_sign.paragraph_format.space_after = Pt(0)
@@ -520,10 +518,10 @@ with col2:
     years_list = [str(y) for y in range(2565, 2575)]
     selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4)
     
-if st.button("📝 สร้างรายงาน Word (จบในหน้าเดียว)"):
+if st.button("📝 สร้างรายงาน Word"):
     try:
         word_output = create_exact_layout_report(selected_month, selected_year)
-        st.success("ล็อกตำแหน่ง 'ที่ / No:' ซ้ายสุด และ 'วันที่' ขวาสุดแบบถาวรเรียบร้อยครับ!")
+        st.success("สร้างรายงานเสร็จเรียบร้อย")
         st.download_button(
             label="📥 ดาวน์โหลดไฟล์ Memo (.docx)",
             data=word_output,
