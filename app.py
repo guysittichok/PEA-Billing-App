@@ -278,7 +278,7 @@ if uploaded_files:
             st.error(f"เกิดข้อผิดพลาด: {e}")
 
 # ================================================================
-# 3. โค้ดส่วนสร้างรายงานอัตโนมัติ (เวอร์ชันล็อกตารางเต็มหน้ากระดาษ - ขวาแท้จริง)
+# 3. โค้ดส่วนสร้างรายงานอัตโนมัติ (เวอร์ชันแก้ไขบั๊กชิดซ้าย - ล็อกตำแหน่งขวาแท้จริง)
 # ================================================================
 import datetime
 from io import BytesIO
@@ -351,43 +351,33 @@ def create_exact_layout_report(selected_month, selected_year):
     p_top_title.paragraph_format.space_after = Pt(4)
     add_run_thai(p_top_title, " MEMORANDUM ", size_pt=15, bold=True)
     
-    # --- สร้างตารางหัวข้อข้อมูลแบบล็อกความกว้างเต็มหน้ากระดาษ ---
+    # --- ปรับโครงสร้างตารางข้อมูลหัวข้อเป็น 1 คอลัมน์เต็ม เพื่อป้องกันเลย์เอาต์เอียงซ้าย ---
     info_table = doc.add_table(rows=5, cols=1)
     info_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     info_table.autofit = False
-    
-    # บังคับโครงสร้าง XML ให้ตารางกว้าง 100% ชนขอบหน้ากระดาษ (6.5 นิ้ว หรือ 9360 dxa)
-    tblPr = info_table._tbl.tblPr
-    tblW = OxmlElement('w:tblW')
-    tblW.set(qn('w:w'), '9360')
-    tblW.set(qn('w:type'), 'dxa')
-    tblPr.append(tblW)
-    
-    info_table.columns[0].width = Inches(6.5)
+    info_table.columns[0].width = Inches(6.5) # แผ่เต็มความกว้างหน้ากระดาษพอดี
     
     apply_custom_info_borders(info_table, color_hex="D3D3D3", size="4")
     
     today_str = datetime.datetime.now().strftime(f"%d {selected_month} {selected_year}")
     
-    # บรรทัดที่ 1: ตั้งค่า Right Tab Stop ที่ระยะขอบตารางขวาสุดพอดี
+    # บรรทัดที่ 1: ใช้ระบบ Right Tab Stop ล็อกตำแหน่งขวา-ซ้าย ขจัดปัญหาเรื่องแท็บเคลื่อน
     cell_first = info_table.cell(0, 0)
-    cell_first.width = Inches(6.5)
     set_cell_margins(cell_first, top=30, bottom=30, left=10, right=10)
-    
     p_first = cell_first.paragraphs[0]
     p_first.paragraph_format.space_before = Pt(0)
     p_first.paragraph_format.space_after = Pt(0)
     p_first.alignment = WD_ALIGN_PARAGRAPH.LEFT
     
-    # ตั้งระยะแท็บหยุดไว้ที่ขอบขวาสุดของพื้นที่พิมพ์ (6.5 นิ้วพอดี)
+    # ล็อกระยะแท็บหยุดตัวที่หนึ่งไว้ที่ตำแหน่งขวาขอบกระดาษพอดี (6.5 นิ้ว) และสั่งให้ข้อความชิดขวาจากจุดนั้น
     tab_stops = p_first.paragraph_format.tab_stops
     tab_stops.add_tab_stop(Inches(6.5), alignment=WD_TAB_ALIGNMENT.RIGHT)
     
     add_run_thai(p_first, "ที่ / No:  -", size_pt=14.5, bold=True)
-    # ใช้ \t เพื่อดีดวันที่ไปชนขอบตารางขวาสุดแบบไม่มีการเบี้ยวเอียง
+    # ใส่ \t เพื่อดีดวันที่ไปอยู่ที่ขอบขวาสุดของเอกสารอย่างแม่นยำ
     add_run_thai(p_first, f"\tวันที่ / Date:  {today_str}", size_pt=14.5)
 
-    # บรรทัดที่ 2-5: แสดงข้อมูลหัวข้ออื่น ๆ
+    # บรรทัดที่ 2-5: แสดงข้อมูลหัวข้ออื่น ๆ ตามปกติ
     headers_layout = [
         ("หน่วยงานผู้ส่ง / From:  ", "ส่วนบริหารกลยุทธ์และแผนการผลิต (กผ.)"),
         ("เรียน / To:  ", "ผจ.สทต. / ผจ.บท ผ่าน ผจ.กผ."),
@@ -397,7 +387,6 @@ def create_exact_layout_report(selected_month, selected_year):
     
     for idx, row_data in enumerate(headers_layout, start=1):
         cell = info_table.cell(idx, 0)
-        cell.width = Inches(6.5)
         set_cell_margins(cell, top=30, bottom=30, left=10, right=10)
         p = cell.paragraphs[0]
         p.paragraph_format.space_before = Pt(0)
@@ -422,7 +411,7 @@ def create_exact_layout_report(selected_month, selected_year):
     p_body1.paragraph_format.line_spacing = 1.15
     add_run_thai(p_body1, f"ส่วนบริหารกลยุทธ์และแผนการผลิต ฝ่ายบริหารเทคนิคและแผนการผลิต ขอนำส่งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year} รายละเอียดการคำนวณตามเอกสารแนบ", size_pt=15)
 
-    # --- ส่วนตารางข้อมูลสรุปปริมาณและค่าใช้จ่าย ---
+    # --- ส่วนตารางข้อมูลสรุปปริมาณและค่าใช้จ่าย (ตารางสีพีชกะทัดรัด) ---
     calc_table = doc.add_table(rows=3, cols=7)
     calc_table.style = 'Table Grid'
     calc_table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -502,7 +491,7 @@ def create_exact_layout_report(selected_month, selected_year):
     add_run_thai(p_body2, f"{total_cost_str}", size_pt=15, bold=True)
     add_run_thai(p_body2, "   บาท", size_pt=15)
 
-    # --- ช่องลงชื่ออนุมัติชิดขวา ---
+    # --- ช่องลงชื่ออนุมัติ (ย้าย "จึงเรียนมาเพื่อโปรดทราบ" ชิดขวาเรียบร้อย และตัดรายการเอกสารแนบออกแล้ว) ---
     p_sign = doc.add_paragraph()
     p_sign.paragraph_format.space_before = Pt(30)
     p_sign.paragraph_format.space_after = Pt(0)
@@ -516,3 +505,28 @@ def create_exact_layout_report(selected_month, selected_year):
     doc.save(doc_io)
     doc_io.seek(0)
     return doc_io
+
+# --- ส่วนควบคุมหน้าจอหลัก UI สำหรับแอป Streamlit ---
+st.markdown("---")
+st.subheader("📊 ระบบออกรายงานสรุปบันทึกข้อความ (Memo Report)")
+
+col1, col2 = st.columns(2)
+with col1:
+    months_list = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+    selected_month = st.selectbox("เลือกประจำเดือน", months_list, index=3)
+with col2:
+    years_list = [str(y) for y in range(2565, 2575)]
+    selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4)
+    
+if st.button("📝 สร้างรายงาน Word (จบในหน้าเดียว)"):
+    try:
+        word_output = create_exact_layout_report(selected_month, selected_year)
+        st.success("แก้ไขโครงสร้างระบบเสร็จสมบูรณ์! ล็อกตำแหน่ง 'วันที่' ชิดขวาสุดของเอกสารเรียบร้อยครับ")
+        st.download_button(
+            label="📥 ดาวน์โหลดไฟล์ Memo (.docx)",
+            data=word_output,
+            file_name=f"Memo_สรุปค่าไฟฟ้า_{selected_month}_{selected_year}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as e:
+        st.error(f"เกิดข้อผิดพลาดในการประมวลผล: {e}")
