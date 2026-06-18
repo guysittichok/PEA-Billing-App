@@ -517,10 +517,10 @@ with col2:
     years_list = [str(y) for y in range(2565, 2575)]
     selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4)
     
-if st.button("📝 สร้างรายงาน Word (จบในหน้าเดียว)"):
+if st.button("📝 สร้างรายงาน Word"):
     try:
         word_output = create_exact_layout_report(selected_month, selected_year)
-        st.success("แก้ไขข้อผิดพลาดโครงสร้างตาราง และปรับขนาดให้กะทัดรัดลงเรียบร้อยแล้ว!")
+        st.success("สร้างรายงานเสร็จเรียบร้อยแล้ว!")
         st.download_button(
             label="📥 ดาวน์โหลดไฟล์ Memo (.docx)",
             data=word_output,
