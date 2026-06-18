@@ -468,7 +468,7 @@ def create_exact_layout_report(selected_month, selected_year):
         row_cells = calc_table.add_row().cells
         is_total = (row_data[0] == "Total")
         for idx, val in enumerate(row_data):
-            cell = row_cells[idx)
+            cell = row_cells(idx)
             if is_total:
                 set_cell_background(cell, peach_hex)
             set_cell_margins(cell, top=20, bottom=20, left=40, right=40)
