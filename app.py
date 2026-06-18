@@ -279,17 +279,20 @@ if uploaded_files:
 
 import datetime
 from docx import Document
-from docx.shared import Inches, Pt
+from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+from docx.oxml import OxmlElement, parse_xml
+from docx.oxml.ns import qn, nsdecls
 
 # ฟังก์ชันช่วยจัดรูปแบบข้อความและฟอนต์ไทย
-def add_run_thai(paragraph, text, font_name="TH Sarabun PSK", size_pt=16, bold=False):
+def add_run_thai(paragraph, text, font_name="TH Sarabun PSK", size_pt=16, bold=False, color_rgb=None):
     run = paragraph.add_run(text)
     run.font.name = font_name
     run.font.size = Pt(size_pt)
     run.bold = bold
+    if color_rgb:
+        run.font.color.rgb = color_rgb
     
     # บังคับอักษรภาษาไทย/Complex Script ใน XML ของ Word
     rPr = run._r.get_or_add_rPr()
@@ -300,10 +303,30 @@ def add_run_thai(paragraph, text, font_name="TH Sarabun PSK", size_pt=16, bold=F
     rPr.append(rFonts)
     return run
 
+# ฟังก์ชันระบายสีพื้นหลังเซลล์ตาราง (Shading)
+def set_cell_background(cell, fill_hex):
+    shading_elm = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{fill_hex}"/>')
+    cell._tc.get_or_add_tcPr().append(shading_elm)
+
+# ฟังก์ชันลบเส้นขอบตารางเฉพาะจุด (สำหรับตาราง Header)
+def set_table_borders_horizontal_only(table):
+    tblPr = table._tbl.tblPr
+    borders = parse_xml(
+        f'<w:tblBorders {nsdecls("w")}>'
+        f'  <w:top w:val="none"/>'
+        f'  <w:left w:val="none"/>'
+        f'  <w:bottom w:val="single" w:sz="6" w:space="0" w:color="CCCCCC"/>'
+        f'  <w:right w:val="none"/>'
+        f'  <w:insideH w:val="single" w:sz="4" w:space="0" w:color="E0E0E0"/>'
+        f'  <w:insideV w:val="none"/>'
+        f'</w:tblBorders>'
+    )
+    tblPr.append(borders)
+
 def create_memo_report(df_data, selected_month, selected_year):
     doc = Document()
     
-    # ตั้งค่าหน้ากระดาษ ด้านละ 1 นิ้วตามมาตรฐาน มอก.
+    # ตั้งค่าหน้ากระดาษ ด้านละ 1 นิ้วตามมาตรฐาน
     for section in doc.sections:
         section.top_margin = Inches(1)
         section.bottom_margin = Inches(1)
@@ -312,34 +335,42 @@ def create_memo_report(df_data, selected_month, selected_year):
 
     # --- ส่วนหัวเอกสาร (Header) แยก ซ้าย - ขวา ---
     header_table = doc.add_table(rows=1, cols=2)
-    header_table.autofit = True
+    header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    # ฝั่งซ้าย: ใส่โลโก้ PTT และชื่อบริษัท
+    # ฝั่งซ้าย: ใส่โลโก้ PTT 
     cell_left = header_table.cell(0, 0)
     p_logo = cell_left.paragraphs[0]
     try:
-        p_logo.add_run().add_picture("ptt_logo.png", width=Inches(1.8))
+        p_logo.add_run().add_picture("ptt_logo.png", width=Inches(1.6))
     except:
-        # หากยังไม่มีไฟล์รูป ให้แสดงเป็นกล่องข้อความจำลองไว้ก่อน
-        add_run_thai(p_logo, "[ โลโก้ PTT ]\n", size_pt=14, bold=True)
+        add_run_thai(p_logo, "บริษัท ปตท. จำกัด (มหาชน)\nPTT Public Company Limited", size_pt=14, bold=True)
     
     # ฝั่งขวา: ใส่แถบกล่องดำ MEMORANDUM
     cell_right = header_table.cell(0, 1)
     p_memo = cell_right.paragraphs[0]
     p_memo.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    # จำลองกล่องข้อความ MEMORANDUM (เพื่อความเป๊ะ แนะนำใช้รูปแถบดำหรือพิมพ์ตัวหนาขีดเส้นใต้คู่)
-    add_run_thai(p_memo, "MEMORANDUM\n", size_pt=20, bold=True)
+    
+    # ทำแถบดำจำลองความเป๊ะของ MEMORANDUM
+    memo_table = cell_right.add_table(rows=1, cols=1)
+    memo_table.alignment = WD_TABLE_ALIGNMENT.RIGHT
+    memo_cell = memo_table.cell(0, 0)
+    set_cell_background(memo_cell, "1A1A1A") # สีดำเข้ม
+    memo_cell.width = Inches(2.2)
+    p_box = memo_cell.paragraphs[0]
+    p_box.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_run_thai(p_box, "MEMORANDUM", size_pt=16, bold=True, color_rgb=RGBColor(255, 255, 255))
 
-    # --- ส่วนตารางข้อมูลบันทึกข้อความ (ตีเส้นขีดแบ่ง) ---
+    doc.add_paragraph() # เว้นบรรทัดสั้นๆ
+
+    # --- ส่วนตารางข้อมูลบันทึกข้อความ (ลบเส้นข้างออกตามต้นแบบ) ---
     info_table = doc.add_table(rows=5, cols=1)
-    info_table.style = 'Table Grid' # ใช้เส้นขอบแบบตาราง หรือตั้งค่าลบเส้นแนวตั้งออกใน Word
+    set_table_borders_horizontal_only(info_table)
     
     # บรรทัดที่ 1: ที่ / No และ วันที่ / Date
     p1 = info_table.cell(0, 0).paragraphs[0]
     add_run_thai(p1, "ที่ / No: ", bold=True)
-    add_run_thai(p1, "-\t\t\t\t\t")
+    add_run_thai(p1, "-\t\t\t\t\t\t\t")
     add_run_thai(p1, "วันที่ / Date: ", bold=True)
-    # แสดงวันที่ปัจจุบันที่รันระบบ
     today_str = datetime.datetime.now().strftime(f"%d {selected_month} {selected_year}")
     add_run_thai(p1, today_str)
 
@@ -365,37 +396,131 @@ def create_memo_report(df_data, selected_month, selected_year):
 
     doc.add_paragraph() # บรรทัดว่าง
 
-    # --- ส่วนเนื้อความ (Body) ---
-    p_body = doc.add_paragraph()
-    p_body.paragraph_format.first_line_indent = Inches(0.5)
-    p_body.paragraph_format.line_spacing = 1.15
-    
-    # ลอจิกดึงตัวเลขจาก DataFrame มาคำนวณ
-    total_units = df_data['I'].sum() + df_data['J'].sum() + df_data['K'].sum()
-    sub_total_money = df_data['F'].sum() + df_data['G'].sum() + df_data['H'].sum()
-    pea_rate = sub_total_money / total_units if total_units > 0 else 4.6311
-    total_amount_with_vat = sub_total_money * 1.07
-    
-    if total_amount_with_vat == 0:
-        total_amount_with_vat = 3481807.25 # ค่านิ่งทดสอบ
-        pea_rate = 4.6311
+    # --- ส่วนเนื้อความตอนต้น ---
+    p_body1 = doc.add_paragraph()
+    p_body1.paragraph_format.first_line_indent = Inches(0.5)
+    p_body1.paragraph_format.line_spacing = 1.15
+    add_run_thai(p_body1, f"ส่วนบริหารกลยุทธ์และแผนการผลิต ฝ่ายบริหารเทคนิคและแผนการผลิต ขอนำส่งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year} รายละเอียดการคำนวณตามเอกสารแนบ")
 
-    add_run_thai(p_body, f"ส่วนบริหารกลยุทธ์และแผนการผลิต ฝ่ายบริหารเทคนิคและแผนการผลิต ขอนำส่งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year} รายละเอียดการคำนวณตามเอกสารแนบ\n")
-    add_run_thai(p_body, "\tอัตราค่าไฟฟ้าอ้างอิง ราคา PEA Rate ณ เดือน ")
-    add_run_thai(p_body, f"{selected_month} {selected_year} = ")
-    add_run_thai(p_body, f"{pea_rate:,.4f}", bold=True)
-    add_run_thai(p_body, " บาท / kWh รายละเอียดตามเอกสารแนบ\n")
-    add_run_thai(p_body, "\tรวมค่าไฟฟ้าที่เรียกเก็บจากระบบท่อส่งก๊าซฯ ทั้งสิ้น ")
-    add_run_thai(p_body, f"{total_amount_with_vat:,.2f}", bold=True)
-    add_run_thai(p_body, " บาท\n\n")
-    add_run_thai(p_body, "จึงเรียนมาเพื่อโปรดทราบ")
+    # --- ส่วนตารางข้อมูลสรุปสีส้มพีช (สร้างตามภาพ Excel ต้นแบบ) ---
+    # ใช้ค่า Default นิ่งๆ ตามที่คุณส่งมาเพื่อให้ใกล้เคียงที่สุดก่อนครับ
+    table_data = [
+        ["DPCU", "26,218.00", "121,418.83", "-", "-", "26,218.00", "121,418.83"],
+        ["New DPCU", "60,451.30", "279,957.51", "-", "-", "60,451.30", "279,957.51"],
+        ["OCS1", "132,224.00", "612,345.83", "-", "-", "132,224.00", "612,345.83"],
+        ["OCS2", "111,774.00", "517,639.33", "-", "-", "111,774.00", "517,639.33"],
+        ["OCS3", "421,808.00", "1,950,445.75", "-", "-", "421,808.00", "1,950,445.75"],
+        ["Total", "752,475.30", "3,481,807.25", "-", "-", "752,475.30", "3,481,807.25"]
+    ]
+
+    calc_table = doc.add_table(rows=3, cols=7)
+    calc_table.style = 'Table Grid'
+    calc_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    
+    # จัดการส่วนหัวตาราง (Header Merge)
+    hdr_cells = calc_table.rows[0].cells
+    hdr_cells_l2 = calc_table.rows[1].cells
+    hdr_cells_l3 = calc_table.rows[2].cells
+    
+    # ระบายสีส้มพาสเทล/พีชที่หัวตาราง (#F8CECC หรือ #FCE4D6 ตามสไตล์ Excel)
+    peach_color = "FCE4D6"
+    
+    # Merge หัวข้อ "พื้นที่ใช้ไฟฟ้า" (แถว 1-3 ยุบรวมกันคอลัมน์แรก)
+    c0 = hdr_cells[0]
+    c0.merge(hdr_cells_l2[0]).merge(hdr_cells_l3[0])
+    set_cell_background(c0, peach_color)
+    p_c0 = c0.paragraphs[0]
+    p_c0.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_run_thai(p_c0, "พื้นที่ใช้ไฟฟ้า", size_pt=13, bold=True)
+    
+    # Merge "ไฟฟ้าที่รับจาก PEA"
+    c1 = hdr_cells[1]
+    c1.merge(hdr_cells[2])
+    set_cell_background(c1, peach_color)
+    p_c1 = c1.paragraphs[0]
+    p_c1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_run_thai(p_c1, "ไฟฟ้าที่รับจาก PEA", size_pt=13, bold=True)
+    
+    # Merge "ไฟฟ้าที่รับจาก GSP"
+    c3 = hdr_cells[3]
+    c3.merge(hdr_cells[4])
+    set_cell_background(c3, peach_color)
+    p_c3 = c3.paragraphs[0]
+    p_c3.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_run_thai(p_c3, "ไฟฟ้าที่รับจาก GSP", size_pt=13, bold=True)
+    
+    # Merge "รวมไฟฟ้าที่รับทั้งหมด"
+    c5 = hdr_cells[5]
+    c5.merge(hdr_cells[6])
+    set_cell_background(c5, peach_color)
+    p_c5 = c5.paragraphs[0]
+    p_c5.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_run_thai(p_c5, "รวมไฟฟ้าที่รับทั้งหมด", size_pt=13, bold=True)
+    
+    # ใส่หัวข้อย่อยแถวที่ 2 และ 3
+    sub_headers = ["ปริมาณไฟฟ้า", "ค่าใช้จ่าย", "ปริมาณไฟฟ้า", "ค่าใช้จ่าย", "ปริมาณไฟฟ้า", "ค่าใช้จ่าย"]
+    sub_units = ["(kWh)", "(บาท)", "(kWh)", "(บาท)", "(kWh)", "(บาท)"]
+    
+    for idx in range(6):
+        cell_h2 = hdr_cells_l2[idx+1]
+        cell_h3 = hdr_cells_l3[idx+1]
+        set_cell_background(cell_h2, peach_color)
+        set_cell_background(cell_h3, peach_color)
+        
+        p_h2 = cell_h2.paragraphs[0]
+        p_h2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        add_run_thai(p_h2, sub_headers[idx], size_pt=11, bold=True)
+        
+        p_h3 = cell_h3.paragraphs[0]
+        p_h3.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        add_run_thai(p_h3, sub_units[idx], size_pt=11, bold=True)
+
+    # กรอกข้อมูลลงในตาราง
+    for row_data in table_data:
+        row_cells = calc_table.add_row().cells
+        is_total = (row_data[0] == "Total")
+        
+        for idx, val in enumerate(row_data):
+            cell = row_cells[idx]
+            p = cell.paragraphs[0]
+            
+            # ถ้าเป็นแถว Total ให้ใส่พื้นหลังสีส้มพีชและตัวหนา
+            if is_total:
+                set_cell_background(cell, peach_color)
+                
+            # จัดตำแหน่งข้อความ: คอลัมน์แรกชิดกลาง คอลัมน์ที่เหลือชิดขวา
+            if idx == 0:
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                add_run_thai(p, val, size_pt=12, bold=is_total)
+            else:
+                p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                add_run_thai(p, val, size_pt=12, bold=is_total)
+
+    doc.add_paragraph() # บรรทัดว่างหลังตาราง
+
+    # --- ส่วนเนื้อความตอนท้าย (ดึงราคารวมจากตารางมาหยอดอัตโนมัติ) ---
+    p_body2 = doc.add_paragraph()
+    p_body2.paragraph_format.line_spacing = 1.15
+    
+    # ดึงค่าราคารวมจากตารางแถวสุดท้าย (คอลัมน์สุดท้ายของ Total)
+    total_cost_str = table_data[-1][-1] 
+    
+    add_run_thai(p_body2, "\tอัตราค่าไฟฟ้าอ้างอิง ราคา PEA Rate ณ เดือน ")
+    add_run_thai(p_body2, f"{selected_month} {selected_year} = ")
+    add_run_thai(p_body2, "4.6311", bold=True)
+    add_run_thai(p_body2, " บาท / kWh  รายละเอียดตามเอกสารแนบ\n")
+    
+    add_run_thai(p_body2, "\tรวมค่าไฟฟ้าที่เรียกเก็บจากระบบท่อส่งก๊าซฯ ทั้งสิ้น\t")
+    add_run_thai(p_body2, f"{total_cost_str}", bold=True)
+    add_run_thai(p_body2, "    \tบาท\n\n")
+    add_run_thai(p_body2, "จึงเรียนมาเพื่อโปรดทราบ")
 
     doc.add_paragraph()
     
-    # --- ส่วนลงชื่อท้ายประโยค (ล็อกชื่อไว้) ---
+    # --- ส่วนลงชื่อท้ายประโยค ---
     p_sign = doc.add_paragraph()
     p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    add_run_thai(p_sign, "(นางสุรีย์พันธ์ คุณากูลสวัสดิ์)\nผู้จัดการทั่วไป      ") # ล็อกชื่อตามบรีฟ
+    add_run_thai(p_sign, "(นางสุรีย์พันธ์ คุณากูลสวัสดิ์)\nผู้จัดการทั่วไป      ")
 
     # --- ส่วนเอกสารแนบ ---
     doc.add_paragraph()
@@ -410,24 +535,23 @@ def create_memo_report(df_data, selected_month, selected_year):
     doc_io.seek(0)
     return doc_io
 
-# เพิ่มส่วนควบคุมบน Streamlit UI (ทำงานเมื่อมีการอัปโหลดไฟล์เสร็จแล้ว)
+# เพิ่มส่วนควบคุมบน Streamlit UI (เมื่อมีการอัปโหลดไฟล์เสร็จแล้ว)
 if uploaded_files:
     st.markdown("---")
     st.subheader("📊 ระบบออกรายงานสรุปบันทึกข้อความ (Memo Report)")
     
-    # สร้างคอลัมน์ให้เลือกเดือนและปีข้างกันสวยงาม
     col1, col2 = st.columns(2)
     with col1:
         months_list = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
-        selected_month = st.selectbox("เลือกประจำเดือน", months_list, index=3) # Default ที่ เมษายน
+        selected_month = st.selectbox("เลือกประจำเดือน", months_list, index=3)
     with col2:
         years_list = [str(y) for y in range(2565, 2575)]
-        selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4) # Default ที่ 2569
+        selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4)
         
-    if st.button("📝 สร้างรายงาน Word (หน้าแรก)"):
+    if st.button("📝 สร้างรายงาน Word พร้อมตารางสรุป"):
         try:
             word_output = create_memo_report(df, selected_month, selected_year)
-            st.success(f"สร้างบันทึกข้อความประจำเดือน {selected_month} {selected_year} สำเร็จแล้ว!")
+            st.success(f"สร้างบันทึกข้อความและตารางสรุปประจำเดือน {selected_month} {selected_year} สำเร็จ!")
             st.download_button(
                 label="📥 ดาวน์โหลดไฟล์ Memo (.docx)",
                 data=word_output,
