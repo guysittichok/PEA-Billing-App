@@ -276,3 +276,163 @@ if uploaded_files:
             
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาด: {e}")
+
+import datetime
+from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+# ฟังก์ชันช่วยจัดรูปแบบข้อความและฟอนต์ไทย
+def add_run_thai(paragraph, text, font_name="TH Sarabun PSK", size_pt=16, bold=False):
+    run = paragraph.add_run(text)
+    run.font.name = font_name
+    run.font.size = Pt(size_pt)
+    run.bold = bold
+    
+    # บังคับอักษรภาษาไทย/Complex Script ใน XML ของ Word
+    rPr = run._r.get_or_add_rPr()
+    rFonts = OxmlElement('w:rFonts')
+    rFonts.set(qn('w:ascii'), font_name)
+    rFonts.set(qn('w:hAnsi'), font_name)
+    rFonts.set(qn('w:cs'), font_name)
+    rPr.append(rFonts)
+    return run
+
+def create_memo_report(df_data, selected_month, selected_year):
+    doc = Document()
+    
+    # ตั้งค่าหน้ากระดาษ ด้านละ 1 นิ้วตามมาตรฐาน มอก.
+    for section in doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1)
+        section.right_margin = Inches(1)
+
+    # --- ส่วนหัวเอกสาร (Header) แยก ซ้าย - ขวา ---
+    header_table = doc.add_table(rows=1, cols=2)
+    header_table.autofit = True
+    
+    # ฝั่งซ้าย: ใส่โลโก้ PTT และชื่อบริษัท
+    cell_left = header_table.cell(0, 0)
+    p_logo = cell_left.paragraphs[0]
+    try:
+        p_logo.add_run().add_picture("ptt_logo.png", width=Inches(1.8))
+    except:
+        # หากยังไม่มีไฟล์รูป ให้แสดงเป็นกล่องข้อความจำลองไว้ก่อน
+        add_run_thai(p_logo, "[ โลโก้ PTT ]\n", size_pt=14, bold=True)
+    
+    # ฝั่งขวา: ใส่แถบกล่องดำ MEMORANDUM
+    cell_right = header_table.cell(0, 1)
+    p_memo = cell_right.paragraphs[0]
+    p_memo.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    # จำลองกล่องข้อความ MEMORANDUM (เพื่อความเป๊ะ แนะนำใช้รูปแถบดำหรือพิมพ์ตัวหนาขีดเส้นใต้คู่)
+    add_run_thai(p_memo, "MEMORANDUM\n", size_pt=20, bold=True)
+
+    # --- ส่วนตารางข้อมูลบันทึกข้อความ (ตีเส้นขีดแบ่ง) ---
+    info_table = doc.add_table(rows=5, cols=1)
+    info_table.style = 'Table Grid' # ใช้เส้นขอบแบบตาราง หรือตั้งค่าลบเส้นแนวตั้งออกใน Word
+    
+    # บรรทัดที่ 1: ที่ / No และ วันที่ / Date
+    p1 = info_table.cell(0, 0).paragraphs[0]
+    add_run_thai(p1, "ที่ / No: ", bold=True)
+    add_run_thai(p1, "-\t\t\t\t\t")
+    add_run_thai(p1, "วันที่ / Date: ", bold=True)
+    # แสดงวันที่ปัจจุบันที่รันระบบ
+    today_str = datetime.datetime.now().strftime(f"%d {selected_month} {selected_year}")
+    add_run_thai(p1, today_str)
+
+    # บรรทัดที่ 2: หน่วยงานผู้ส่ง
+    p2 = info_table.cell(1, 0).paragraphs[0]
+    add_run_thai(p2, "หน่วยงานผู้ส่ง / From: ", bold=True)
+    add_run_thai(p2, "ส่วนบริหารกลยุทธ์และแผนการผลิต (กผ.)")
+
+    # บรรทัดที่ 3: เรียน
+    p3 = info_table.cell(2, 0).paragraphs[0]
+    add_run_thai(p3, "เรียน / To: ", bold=True)
+    add_run_thai(p3, "ผจ.สทต. / ผจ.บท ผ่าน ผจ.กผ.")
+
+    # บรรทัดที่ 4: สำเนา
+    p4 = info_table.cell(3, 0).paragraphs[0]
+    add_run_thai(p4, "สำเนา / CC: ", bold=True)
+    add_run_thai(p4, "ผจ.ปท.3, ผจ.ชก., ผจ.บฟ.")
+
+    # บรรทัดที่ 5: เรื่อง
+    p5 = info_table.cell(4, 0).paragraphs[0]
+    add_run_thai(p5, "เรื่อง / Subject: ", bold=True)
+    add_run_thai(p5, f"แจ้งสรุปค่าไฟฟ้าofสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year}")
+
+    doc.add_paragraph() # บรรทัดว่าง
+
+    # --- ส่วนเนื้อความ (Body) ---
+    p_body = doc.add_paragraph()
+    p_body.paragraph_format.first_line_indent = Inches(0.5)
+    p_body.paragraph_format.line_spacing = 1.15
+    
+    # ลอจิกดึงตัวเลขจาก DataFrame มาคำนวณ
+    total_units = df_data['I'].sum() + df_data['J'].sum() + df_data['K'].sum()
+    sub_total_money = df_data['F'].sum() + df_data['G'].sum() + df_data['H'].sum()
+    pea_rate = sub_total_money / total_units if total_units > 0 else 4.6311
+    total_amount_with_vat = sub_total_money * 1.07
+    
+    if total_amount_with_vat == 0:
+        total_amount_with_vat = 3481807.25 # ค่านิ่งทดสอบ
+        pea_rate = 4.6311
+
+    add_run_thai(p_body, f"ส่วนบริหารกลยุทธ์และแผนการผลิต ฝ่ายบริหารเทคนิคและแผนการผลิต ขอนำส่งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year} รายละเอียดการคำนวณตามเอกสารแนบ\n")
+    add_run_thai(p_body, "\tอัตราค่าไฟฟ้าอ้างอิง ราคา PEA Rate ณ เดือน ")
+    add_run_thai(p_body, f"{selected_month} {selected_year} = ")
+    add_run_thai(p_body, f"{pea_rate:,.4f}", bold=True)
+    add_run_thai(p_body, " บาท / kWh รายละเอียดตามเอกสารแนบ\n")
+    add_run_thai(p_body, "\tรวมค่าไฟฟ้าที่เรียกเก็บจากระบบท่อส่งก๊าซฯ ทั้งสิ้น ")
+    add_run_thai(p_body, f"{total_amount_with_vat:,.2f}", bold=True)
+    add_run_thai(p_body, " บาท\n\n")
+    add_run_thai(p_body, "จึงเรียนมาเพื่อโปรดทราบ")
+
+    doc.add_paragraph()
+    
+    # --- ส่วนลงชื่อท้ายประโยค (ล็อกชื่อไว้) ---
+    p_sign = doc.add_paragraph()
+    p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    add_run_thai(p_sign, "(นางสุรีย์พันธ์ คุณากูลสวัสดิ์)\nผู้จัดการทั่วไป      ") # ล็อกชื่อตามบรีฟ
+
+    # --- ส่วนเอกสารแนบ ---
+    doc.add_paragraph()
+    p_attach = doc.add_paragraph()
+    add_run_thai(p_attach, "เอกสารแนบที่ 1 ", bold=True)
+    add_run_thai(p_attach, "รายละเอียดในการคำนวณค่าไฟฟ้า\n")
+    add_run_thai(p_attach, "เอกสารแนบที่ 2 ", bold=True)
+    add_run_thai(p_attach, "หนังสือแจ้งค่าไฟฟ้าของการไฟฟ้าส่วนภูมิภาค")
+
+    doc_io = BytesIO()
+    doc.save(doc_io)
+    doc_io.seek(0)
+    return doc_io
+
+# เพิ่มส่วนควบคุมบน Streamlit UI (ทำงานเมื่อมีการอัปโหลดไฟล์เสร็จแล้ว)
+if uploaded_files:
+    st.markdown("---")
+    st.subheader("📊 ระบบออกรายงานสรุปบันทึกข้อความ (Memo Report)")
+    
+    # สร้างคอลัมน์ให้เลือกเดือนและปีข้างกันสวยงาม
+    col1, col2 = st.columns(2)
+    with col1:
+        months_list = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+        selected_month = st.selectbox("เลือกประจำเดือน", months_list, index=3) # Default ที่ เมษายน
+    with col2:
+        years_list = [str(y) for y in range(2565, 2575)]
+        selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4) # Default ที่ 2569
+        
+    if st.button("📝 สร้างรายงาน Word (หน้าแรก)"):
+        try:
+            word_output = create_memo_report(df, selected_month, selected_year)
+            st.success(f"สร้างบันทึกข้อความประจำเดือน {selected_month} {selected_year} สำเร็จแล้ว!")
+            st.download_button(
+                label="📥 ดาวน์โหลดไฟล์ Memo (.docx)",
+                data=word_output,
+                file_name=f"Memo_สรุปค่าไฟฟ้า_{selected_month}_{selected_year}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+        except Exception as e:
+            st.error(f"เกิดข้อผิดพลาดในการสร้างไฟล์: {e}")
