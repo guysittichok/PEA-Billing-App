@@ -335,12 +335,12 @@ def apply_custom_info_borders(table, color_hex="D3D3D3", size="4"):
     tblPr.append(parse_xml(xml_string))
 
 # ================================================================
-# 2. ฟังก์ชันสร้าง Word จากตารางข้อมูลที่ดึงมาตรงพิกัด
+# 2. ฟังก์ชันสร้างโครงรายงานฟอร์ม ปตท. จบในหน้าเดียว
 # ================================================================
 def create_exact_layout_report(df_clean, selected_month, selected_year, reference_rate):
     doc = Document()
     
-    # กำหนดขอบหน้ากระดาษ 1 นิ้วรอบด้านเพื่อให้อยู่ในหน้าเดียวพอดี
+    # เซ็ตระยะขอบ 1 นิ้วรอบด้าน เพื่อให้ข้อความกระชับพอดีหน้า
     for section in doc.sections:
         section.top_margin = Inches(1.0)
         section.bottom_margin = Inches(1.0)
@@ -352,7 +352,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     p_top_title.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     add_run_thai(p_top_title, " MEMORANDUM ", size_pt=15, bold=True)
     
-    # ตารางส่วนหัวเรื่อง
+    # ตารางข้อมูลส่วนหัวของบันทึกข้อความ
     info_table = doc.add_table(rows=5, cols=2)
     info_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     info_table.autofit = False
@@ -382,12 +382,12 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     p_line_border = parse_xml(f'<w:pBdr {nsdecls("w")}><w:bottom w:val="single" w:sz="12" w:space="1" w:color="000000"/></w:pBdr>')
     p_line._p.get_or_add_pPr().append(p_line_border)
 
-    # ย่อหน้าเนื้อความนำ
+    # ย่อหน้าเนื้อความหลัก
     p_body1 = doc.add_paragraph()
     p_body1.paragraph_format.first_line_indent = Inches(0.5)
     add_run_thai(p_body1, f"ส่วนบริหารกลยุทธ์และแผนการผลิต ฝ่ายบริหารเทคนิคและแผนการผลิต ขอนำส่งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year} รายละเอียดการคำนวณตามเอกสารแนบ", size_pt=15)
 
-    # สร้างตารางข้อมูลสรุปสีพีช (3 แถวหัวตาราง)
+    # โครงสร้างตารางสรุปค่าไฟฟ้า (3 แถวแรกเป็นหัวตารางสีพีช)
     calc_table = doc.add_table(rows=3, cols=7)
     calc_table.style = 'Table Grid'
     calc_table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -418,7 +418,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
         c2.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         c3.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # วนลูปเพื่อกรอกข้อมูลพื้นที่ใช้ไฟฟ้าจริงลงตาราง
+    # นำข้อมูลคลีนพิกัด G48:M56 มาวนลูปกรอกลงตารางจริง
     total_cost_sum = "0.00"
     for _, row in df_clean.iterrows():
         row_cells = calc_table.add_row().cells
@@ -433,7 +433,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
             p = cell.paragraphs[0]
             
             val = row.iloc[col_idx]
-            # จัดฟอร์แมตตัวเลข ถ้าเป็น 0 หรือว่าง ให้ใส่เครื่องหมาย แดช "-" 
+            # แปลงและจัด Format ตัวเลขให้สวยงาม (ถ้าเป็น 0 หรือว่าง ให้แสดงเป็นเครื่องหมายแดช "-")
             if isinstance(val, (int, float)):
                 val_str = "-" if val == 0 or pd.isna(val) else f"{val:,.2f}"
             else:
@@ -448,7 +448,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
                 if is_total and col_idx == 6:
                     total_cost_sum = val_str
 
-    # สรุปราคารวมด้านล่างตาราง
+    # ท่อนข้อความสรุปท้ายหน้าเรื่องอัตราอ้างอิงและเงินสุทธิ
     p_body2 = doc.add_paragraph()
     p_body2.paragraph_format.space_before = Pt(12)
     add_run_thai(p_body2, f"\tอัตราค่าไฟฟ้าอ้างอิง ราคา PEA Rate ณ เดือน {selected_month} {selected_year} = ", size_pt=15)
@@ -458,7 +458,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     add_run_thai(p_body2, f"{total_cost_sum}", size_pt=15, bold=True)
     add_run_thai(p_body2, "   บาท", size_pt=15)
 
-    # ลายเซ็นผู้อนุมัติ
+    # ลงชื่อผู้จัดการทั่วไป ปิดท้ายฟอร์ม
     p_sign = doc.add_paragraph()
     p_sign.paragraph_format.space_before = Pt(35)
     p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -472,10 +472,10 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     return doc_io
 
 # ================================================================
-# 3. ส่วนการทำงานของ Streamlit (ดึงเจาะจงเฉพาะชีตและพิกัดคอลัมน์ G-M)
+# 3. ส่วนแอปพลิเคชัน Streamlit (หยิบแผ่นงานแรกสุดโดยอัตโนมัติ)
 # ================================================================
 st.title("ระบบออกรายงานสรุปบันทึกข้อความ ปตท. อัตโนมัติ")
-st.subheader("🎯 ล็อกพิกัดดึงตารางสรุปชีต 'Update PEA Bill' คอลัมน์ G-M บรรทัด 48-56")
+st.subheader("📊 ล็อกพิกัดดึงตารางสรุปโดยตรงจากคอลัมน์ G-M แถว 48-56")
 
 uploaded_file = st.file_uploader("📥 อัปโหลดไฟล์ Excel ค่าไฟฟ้า", type=["xlsx", "xls"])
 
@@ -491,38 +491,35 @@ reference_rate = st.number_input("⚡ ป้อนอัตราค่าไฟ
 
 if uploaded_file is not None:
     try:
-        # เจาะจงอ่านชีตชื่อ "Update PEA Bill" แบบไม่กำหนดหัวข้อตาราง (header=None) เพื่อดึงด้วย Index บรรทัด
-        # โดยดึงช่วงคอลัมน์ G ถึง M ซึ่งเทียบเท่ากับดึงดัชนีคอลัมน์ช่องที่ 6 ถึง 12 (usecols="G:M")
-        df_all = pd.read_excel(uploaded_file, sheet_name="Update PEA Bill", header=None, usecols="G:M")
+        # ไม่ใส่ sheet_name เพื่อบังคับให้อ่านแผ่นงานชีตแรกสุดของไฟล์ที่ผู้ใช้อัปโหลดทันที
+        # และเจาะจงดึงเฉพาะข้อมูลกรอบขอบเขตคอลัมน์ G ถึง M
+        df_all = pd.read_excel(uploaded_file, header=None, usecols="G:M")
         
-        # ดึงช่วงแถวที่ 48-56 ใน Excel (ในระบบ Index ของ Python จะเลื่อนขึ้นมาลบ 1 คือแถวที่ 47 ถึง 55)
-        # แถวที่ 48 (Index 47) คือหัวตารางสีส้ม -> แถวที่ 49-56 (Index 48-55) คือเนื้อข้อมูลย่อยจนถึง Total
+        # ดึงบรรทัดที่ 48 ถึง 56 ใน Excel ตรง ๆ (เทียบเท่ากับ index 47 ถึง 55 ของ Python)
         df_table = df_all.iloc[47:56].copy()
         
-        # ตั้งบรรทัดแรก (Row 48 ของ Excel) ให้ขึ้นมาทำหน้าที่เป็นชื่อหัวคอลัมน์แทน
+        # นำแถวแรกของกลุ่มที่ตัดมา (Row 48) ตั้งค่าให้เป็นชื่อคอลัมน์ของตาราง
         df_table.columns = df_table.iloc[0]
         df_clean = df_table.iloc[1:].reset_index(drop=True)
         
-        # ทำความสะอาดข้อมูล เปลี่ยนชื่อหัวแถวแรกให้ได้มาตรฐานความสวยงามของฟอร์มรายงาน
+        # ปรับเปลี่ยนหัวคอลัมน์ให้อยู่ในโครงสร้างมาตรฐานสำหรับการสร้างรูปเล่มรายงาน Word
         df_clean.columns = ['พื้นที่ใช้ไฟฟ้า', 'PEA_ปริมาณ', 'PEA_ค่าใช้จ่าย', 'GSP_ปริมาณ', 'GSP_ค่าใช้จ่าย', 'รวม_ปริมาณ', 'รวม_ค่าใช้จ่าย']
         
-        # คลีนช่องที่คำนวณจากสูตรแล้วเป็นค่าว่าง (NaN) ให้กลายเป็น 0
+        # เคลียร์ค่าว่างสูตร (NaN) ให้เป็น 0 ทั้งหมดเพื่อไม่ให้ระบบเกิดปัญหา JSON Parse Error ตอนแสดงพรีวิว
         df_clean = df_clean.fillna(0)
         
-        st.success("✅ เชื่อมต่อและกรองตารางสีส้มพิกัด G48:M56 สดตรงจากชีตสำเร็จ!")
-        st.dataframe(df_clean) # พรีวิวข้อมูลจะสั้นเป๊ะมีแค่ 5 พื้นที่หลัก + 1 แถวรวมสุทธิด้านล่างทันที
+        st.success("🎯 ระบบตรวจพบไฟล์และดึงข้อมูลจากตารางพิกัด G48:M56 เรียบร้อยแล้ว!")
+        st.dataframe(df_clean)
         
         if st.button("📝 สร้างรายงานบันทึกข้อความ (จบในหน้าเดียว)"):
             word_file = create_exact_layout_report(df_clean, selected_month, selected_year, reference_rate)
-            st.success("✅ ดึงข้อมูลสูตรจาก Excel และเซ็ตหน้ากระดาษจบใน 1 หน้าเรียบร้อยแล้วครับ")
+            st.success("✅ สร้างไฟล์และดึงข้อมูลผลลัพธ์สูตรสำเร็จ!")
             st.download_button(
                 label="📥 ดาวน์โหลดไฟล์บันทึกข้อความ ปตท. (.docx)",
                 data=word_file,
-                file_name=f"Memo_สรุปค่าไฟฟ้า_ของจริง_{selected_month}_{selected_year}.docx",
+                file_name=f"Memo_สรุปค่าไฟฟ้า_{selected_month}_{selected_year}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
             
-    except ValueError as ve:
-        st.error("❌ ไม่พบแผ่นงาน (Sheet) ที่ชื่อว่า 'Update PEA Bill' ในไฟล์ Excel นี้ กรุณาตรวจสอบการสะกดชื่อชีตในไฟล์จริงครับ")
     except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการดึงข้อมูลตามพิกัด: {e}")
+        st.error(f"❌ เกิดข้อผิดพลาดในการดึงข้อมูลตามพิกัดตาราง: {e}")
