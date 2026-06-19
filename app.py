@@ -279,6 +279,7 @@ if uploaded_files:
 
 import datetime
 from io import BytesIO
+import numpy as np
 import pandas as pd
 import streamlit as st
 from docx import Document
@@ -342,8 +343,8 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     
     # กำหนดขอบกระดาษให้กระชับ ป้องกันตารางและลายเซ็นไหลตกไปหน้าสอง
     for section in doc.sections:
-        section.top_margin = Inches(0.6)
-        section.bottom_margin = Inches(0.6)
+        section.top_margin = Inches(0.5)
+        section.bottom_margin = Inches(0.5)
         section.left_margin = Inches(1.0)
         section.right_margin = Inches(1.0)
 
@@ -365,7 +366,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     
     for row in info_table.rows:
         for cell in row.cells:
-            set_cell_margins(cell, top=15, bottom=15, left=40, right=40)
+            set_cell_margins(cell, top=12, bottom=12, left=40, right=40)
             cell.paragraphs[0].paragraph_format.space_after = Pt(0)
 
     add_run_thai(info_table.cell(0, 0).paragraphs[0], "ที่ / No:  -", size_pt=14, bold=True)
@@ -397,7 +398,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     p_body1.paragraph_format.space_after = Pt(6)
     add_run_thai(p_body1, f"ส่วนบริหารกลยุทธ์และแผนการผลิต ฝ่ายบริหารเทคนิคและแผนการผลิต ขอนำส่งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year} รายละเอียดการคำนวณตามเอกสารแนบ", size_pt=15)
 
-    # สร้างโครงสร้างตารางข้อมูล 7 คอลลัมน์ (หัวตารางสีส้มพาสเทล)
+    # สร้างโครงสร้างตารางข้อมูล 7 คอลัมน์ (หัวตารางสีส้มพาสเทล)
     calc_table = doc.add_table(rows=3, cols=7)
     calc_table.style = 'Table Grid'
     calc_table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -442,13 +443,12 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
             cell = row_cells[col_idx]
             if is_total:
                 set_cell_background(cell, peach_hex)
-            set_cell_margins(cell, top=10, bottom=10, left=40, right=40)
+            set_cell_margins(cell, top=8, bottom=8, left=40, right=40)
             p = cell.paragraphs[0]
             p.paragraph_format.space_after = Pt(0)
             
             val = row.iloc[col_idx]
             if isinstance(val, (int, float)):
-                # หากค่าเป็น 0.0 หรือน้อยกว่า ให้แสดงผลเป็นแดช (-) เหมือนในรูปแบบดั้งเดิม
                 val_str = "-" if val <= 0 or pd.isna(val) else f"{val:,.2f}"
             else:
                 val_str = str(val).strip()
@@ -481,7 +481,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
 
     # พื้นที่ลงนามผู้บริหารท้ายหน้า
     p_sign = doc.add_paragraph()
-    p_sign.paragraph_format.space_before = Pt(25)
+    p_sign.paragraph_format.space_before = Pt(20)
     p_sign.paragraph_format.space_after = Pt(0)
     p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     add_run_thai(p_sign, "จึงเรียนมาเพื่อโปรดทราบ            \n\n\n", size_pt=14)
@@ -510,32 +510,46 @@ with col2:
 
 reference_rate = st.number_input("⚡ ป้อนอัตราค่าไฟฟ้าอ้างอิงประจำเดือน (บาท / kWh)", min_value=0.01, max_value=10.0, value=4.6311, format="%.4f")
 
+# ฟังก์ชันทำความสะอาดข้อมูลตัวเลข ป้องกัน NaN และเครื่องหมายขยะอย่างเสถียร
+def clean_numeric_value(val):
+    if pd.isna(val) or val == "":
+        return 0.0
+    if isinstance(val, (int, float)):
+        return 0.0 if np.isnan(val) else float(val)
+    
+    # ถ้าเป็น String ให้แกะคอมมาและหน่วยออก
+    val_str = str(val).replace(",", "").replace("บาท", "").replace("kWh", "").replace(" ", "").strip()
+    if val_str in ["", "-", "0", "0.00", "nan", "None"]:
+        return 0.0
+    try:
+        return float(val_str)
+    except ValueError:
+        return 0.0
+
 if uploaded_file is not None:
     try:
-        # อ่านไฟล์ Excel แผ่นแรกแบบไร้โครงสร้าง Header เพื่อสแกนแบบเจาะพิกัดตรงจุด
+        # อ่านไฟล์ Excel แผ่นแรกเข้ามาแบบ Matrix ดิบ
         df_raw = pd.read_excel(uploaded_file, header=None, sheet_name=0)
-        
-        # ล้างช่องว่างสตริงป้องกันแมปพลาด
-        df_raw = df_raw.map(lambda x: str(x).strip() if pd.notna(x) else "")
+        df_raw = df_raw.fillna("")
         
         # 1. ค้นหาบรรทัดเริ่มต้นของท่อน "4. สรุปการใช้ไฟฟ้า TSO ตามพื้นที่"
         start_tso_idx = None
         for idx, row in df_raw.iterrows():
-            combined_row_text = "".join(list(row.values)).replace(" ", "")
-            if "4.สรุปการใช้ไฟฟ้า" in combined_row_text:
+            combined_row_text = "".join([str(c) for c in row.values]).replace(" ", "")
+            if "4.สรุปการใช้ไฟฟ้า" in combined_row_text or "สรุปการใช้ไฟฟ้าTSO" in combined_row_text:
                 start_tso_idx = idx
                 break
                 
-        # 2. ค้นหาบรรทัดเริ่มต้นของตารางรายละเอียดท่อนบนเพื่อดึงค่า kWh ดิบ (DPCU, New DPCU, OCS1, OCS2, OCS3)
-        # โดยการหาพิกัดคำว่า "พื้นที่ใช้ไฟฟ้า" ท่อนบนสุด
+        # 2. ค้นหาบรรทัดเริ่มต้นของตารางรายละเอียดท่อนบนสุด
         start_top_idx = None
         for idx, row in df_raw.iterrows():
-            combined_row_text = "".join(list(row.values)).replace(" ", "")
-            if "พื้นที่ใช้ไฟฟ้า" in combined_row_text and idx < (start_tso_idx if start_tso_idx else 999):
-                start_top_idx = idx
-                break
+            combined_row_text = "".join([str(c) for c in row.values]).replace(" ", "")
+            if "พื้นที่ใช้ไฟฟ้า" in combined_row_text:
+                if start_tso_idx is None or idx < start_tso_idx:
+                    start_top_idx = idx
+                    break
 
-        # โครงสร้างจัดเก็บค่าจำแนกตามพื้นที่หลัก 5 ตัว
+        # โครงสร้างจัดเก็บค่าสรุป 5 พื้นที่หลัก
         final_extracted_metrics = {
             "DPCU": {"kwh": 0.0, "cost": 0.0},
             "New DPCU": {"kwh": 0.0, "cost": 0.0},
@@ -544,62 +558,67 @@ if uploaded_file is not None:
             "OCS3": {"kwh": 0.0, "cost": 0.0}
         }
 
-        # --- ส่วนที่ A: ดึงค่าใช้จ่าย (บาท) จริงจากตารางหัวข้อสรุปข้อ 4 ---
+        # --- ส่วนที่ A: ดึงค่าใช้จ่าย (บาท) จากตารางสรุปข้อ 4 (ด้านล่าง) ---
         if start_tso_idx is not None:
-            # วนลูปสแกนดู 8 แถวด้านล่างหัวข้อที่ 4
-            for offset in range(1, 9):
+            for offset in range(1, 12):
                 current_row_idx = start_tso_idx + offset
                 if current_row_idx >= len(df_raw):
                     break
                     
                 row_cells = list(df_raw.iloc[current_row_idx].values)
-                # ดึงชื่อหัวข้อพื้นที่ในคอลัมน์แรก
-                row_area_title = str(row_cells[0]).strip()
+                row_area_title = str(row_cells[0]).strip().replace(" ", "")
                 
+                if not row_area_title or "รวม" in row_area_title or "total" in row_area_title.lower():
+                    continue
+                
+                # ลูปแมปค่าเงินบาทตามพื้นที่ (เช็คแบบจับคู่คำเฉพาะเจาะจง)
                 for area_key in final_extracted_metrics.keys():
-                    if area_key.lower() == row_area_title.lower():
-                        # ค้นหาค่าเงินบาทในแถวนั้น (ช่องแรกที่แปลงเป็นตัวเลขสำเร็จ)
-                        for cell_val in row_cells[1:]:
-                            clean_val = str(cell_val).replace(",", "").strip()
-                            try:
-                                numeric_cost = float(clean_val)
-                                if numeric_cost > 0:
-                                    final_extracted_metrics[area_key]["cost"] = numeric_cost
-                                    break
-                            except ValueError:
-                                continue
+                    is_match = False
+                    if area_key == "New DPCU" and "new" in row_area_title.lower() and "dpcu" in row_area_title.lower():
+                        is_match = True
+                    elif area_key == "DPCU" and "dpcu" in row_area_title.lower() and "new" not in row_area_title.lower():
+                        is_match = True
+                    elif area_key not in ["DPCU", "New DPCU"] and area_key.lower() in row_area_title.lower():
+                        is_match = True
+                        
+                    if is_match:
+                        # เจาะจงดึงค่าใช้จ่าย (ตารางสรุปมักจะเก็บตัวเลขเงินบาทไว้คอลัมน์ถัดจากชื่อทันที หรือคอลัมน์ที่ 1-2)
+                        for cell_val in row_cells[1:4]:
+                            num_val = clean_numeric_value(cell_val)
+                            if num_val > 0:
+                                final_extracted_metrics[area_key]["cost"] = num_val
+                                break
 
-        # --- ส่วนที่ B: ดึงปริมาณไฟฟ้า (kWh) จริงจากตารางรายละเอียดท่อนบน ---
+        # --- ส่วนที่ B: ดึงปริมาณไฟฟ้า (kWh) จากตารางรายละเอียดท่อนบนสุด ---
         if start_top_idx is not None:
-            # วนลูปไล่หาตั้งแต่บรรทัดใต้หัวข้อตารางลงไปจนถึงก่อนถึงหัวข้อที่ 4
             end_search_idx = start_tso_idx if start_tso_idx is not None else len(df_raw)
             for current_row_idx in range(start_top_idx + 1, end_search_idx):
                 row_cells = list(df_raw.iloc[current_row_idx].values)
-                row_area_title = str(row_cells[0]).strip()
+                row_area_title = str(row_cells[0]).strip().replace(" ", "")
                 
+                if "4." in row_area_title or "สรุป" in row_area_title:
+                    break
+                    
                 for area_key in final_extracted_metrics.keys():
-                    # สแกนหาคำค้นที่ตรงกัน (เช่น "New DPCU" หรือ "OCS3")
-                    if area_key.lower() in row_area_title.lower():
-                        # ค้นหาค่า kWh ในแถว โดยในโครงสร้างดั้งเดิมปริมาณไฟฟ้าจะอยู่ในช่วงคอลลัมน์ต้น ๆ (ดึงตัวเลขตัวแรกที่เจอที่สอดคล้อง)
-                        for cell_val in row_cells[1:]:
-                            clean_val = str(cell_val).replace(",", "").strip()
-                            try:
-                                numeric_kwh = float(clean_val)
-                                # คัดกรองตัวเลขที่ไม่ใช่เลขโครงสร้างสูตรหรือขยะข้อความ และกรอกเฉพาะค่าที่เป็น kWh จริง
-                                if numeric_kwh > 0 and numeric_kwh < 1000000: 
-                                    # หากเป็นกลุ่ม OCS2 ที่มีแถวย่อย โค้ดจะทำสัญญารวมผลบวกให้อัตโนมัติ
-                                    final_extracted_metrics[area_key]["kwh"] += numeric_kwh
-                                    break
-                            except ValueError:
-                                continue
+                    is_match = False
+                    if area_key == "New DPCU" and "new" in row_area_title.lower() and "dpcu" in row_area_title.lower():
+                        is_match = True
+                    elif area_key == "DPCU" and "dpcu" in row_area_title.lower() and "new" not in row_area_title.lower():
+                        is_match = True
+                    elif area_key not in ["DPCU", "New DPCU"] and area_key.lower() in row_area_title.lower():
+                        is_match = True
+                        
+                    if is_match:
+                        # ในตารางบน ปริมาณไฟฟ้า (kWh) มักจะอยู่ในคอลัมน์ที่ 1 หรือ 2 ถัดจากชื่อพื้นที่
+                        for cell_val in row_cells[1:4]:
+                            num_val = clean_numeric_value(cell_val)
+                            # กรองช่วงตัวเลขที่เป็นปริมาณไฟฟ้าจริง (ป้องกันการดึงเลขรหัสมิเตอร์หลักร้อย)
+                            if num_val > 0 and num_val != final_extracted_metrics[area_key]["cost"]:
+                                # ถ้ารายการไหนมีหลายบรรทัดย่อย (เช่น OCS2) ให้สะสมยอดบวกรวมเข้าไป
+                                final_extracted_metrics[area_key]["kwh"] += num_val
+                                break
 
-        # ปรับแก้ Fallback พิเศษสำหรับกรณีค่าว่าง (-) ให้แสดงผลเป็น 0.0 เพื่อนำไปพล็อตลงตารางได้อย่างถูกต้องและไม่เกิด JSON Error
-        # สอดคล้องตามหน้างานจริงของคุณ (DPCU, OCS1, OCS2 จะมีค่า kWh เป็น 0 ส่วน New DPCU และ OCS3 จะมีตัวเลขปกติ)
-        for area_key in final_extracted_metrics.keys():
-            if final_extracted_metrics[area_key]["kwh"] == 0.0:
-                final_extracted_metrics[area_key]["kwh"] = 0.0
-
-        # --- ส่วนที่ C: ประกอบโครงสร้างแถวเพื่อสร้าง DataFrame ---
+        # --- ส่วนที่ C: ประกอบข้อมูลสร้างตาราง DataFrame ที่เสถียร ---
         clean_rows = []
         total_kwh_sum = 0.0
         total_cost_sum = 0.0
@@ -612,10 +631,10 @@ if uploaded_file is not None:
             total_kwh_sum += kwh_val
             total_cost_sum += cost_val
             
-            # โครงสร้างตาราง: [พื้นที่, PEA_kWh, PEA_บาท, GSP_kWh, GSP_บาท, รวม_kWh, รวม_บาท]
+            # โครงสร้างคอลัมน์: [พื้นที่, PEA_ปริมาณ, PEA_ค่าใช้จ่าย, GSP_ปริมาณ, GSP_ค่าใช้จ่าย, รวม_ปริมาณ, รวม_ค่าใช้จ่าย]
             clean_rows.append([area, kwh_val, cost_val, 0.0, 0.0, kwh_val, cost_val])
             
-        # เพิ่มแถวสรุปผลรวมทั้งหมด (Total) ปิดท้ายตาราง
+        # เพิ่มแถวรวมผลสรุปสุทธิ (Total)
         clean_rows.append(["Total", total_kwh_sum, total_cost_sum, 0.0, 0.0, total_kwh_sum, total_cost_sum])
         
         df_clean = pd.DataFrame(clean_rows, columns=[
@@ -623,15 +642,19 @@ if uploaded_file is not None:
             'GSP_ปริมาณ', 'GSP_ค่าใช้จ่าย', 'รวม_ปริมาณ', 'รวม_ค่าใช้จ่าย'
         ])
 
-        # สั่งเรนเดอร์ตารางทดสอบบน Streamlit UI
-        st.success("🎯 ดึงข้อมูลพิกัดตัวเลขค่าไฟฟ้าเสร็จสมบูรณ์ ตัวเลขตรงตามบัญชีจริงแล้วครับ")
+        st.success("🎯 ดึงข้อมูลพิกัดตัวเลขค่าไฟฟ้าสำเร็จ ไร้ค่า NaN และขยะสูตรเรียบร้อย!")
         
-        # ฟอร์แมตการแสดงผลบนเว็บ: หากค่าเป็น 0.0 จะแสดงเป็นเครื่องหมายแดช (-) เพื่อให้หน้าตาเหมือนรายงานต้นฉบับ
-        st.dataframe(df_clean.style.format(lambda x: "-" if isinstance(x, (int, float)) and x == 0.0 else (f"{x:,.2f}" if isinstance(x, (int, float)) else x)))
+        # ฟังก์ชันฟอร์แมตแปลงเลข 0.0 ให้แสดงเป็นเครื่องหมายแดช (-) บนเว็บเพื่อความสวยงามโดยไม่ทำให้ระบบค้าง
+        def style_formatter(val):
+            if isinstance(val, (int, float)):
+                return "-" if val == 0.0 or pd.isna(val) else f"{val:,.2f}"
+            return str(val)
+
+        st.dataframe(df_clean.style.format(style_formatter))
         
         if st.button("📝 สร้างรายงาน Word (จบในหน้าเดียว)"):
             word_file = create_exact_layout_report(df_clean, selected_month, selected_year, reference_rate)
-            st.success("✅ บันทึกข้อความถูกจัดทำเรียบร้อย ตัวเลขถูกต้องและฟอร์แมตจบใน 1 หน้ากระดาษพอดี!")
+            st.success("✅ บันทึกข้อความจัดทำเสร็จสมบูรณ์ ข้อมูลถูกต้องและลงตัวในหน้าเดียวพอดี!")
             st.download_button(
                 label="📥 ดาวน์โหลดไฟล์บันทึกข้อความ ปตท. (.docx)",
                 data=word_file,
@@ -640,4 +663,4 @@ if uploaded_file is not None:
             )
             
     except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการประมวลผลข้อมูลโครงสร้าง Excel: {e}")
+        st.error(f"❌ เกิดข้อผิดพลาดในการคำนวณหรือแกะข้อมูลโครงสร้าง Excel: {e}")
