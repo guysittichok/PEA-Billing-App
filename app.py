@@ -277,18 +277,20 @@ if uploaded_files:
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาด: {e}")
 
-# ================================================================
-# 3. โค้ดส่วนสร้างรายงานอัตโนมัติ (เวอร์ชันแก้ไขบั๊กชิดซ้าย - ล็อกตำแหน่งขวาแท้จริง)
-# ================================================================
 import datetime
 from io import BytesIO
+import pandas as pd
+import streamlit as st
 from docx import Document
 from docx.shared import Inches, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn, nsdecls
 
+# ================================================================
+# 1. ฟังก์ชันช่วยจัดรูปแบบและเลย์เอาต์เอกสาร Word
+# ================================================================
 def add_run_thai(paragraph, text, font_name="TH Sarabun PSK", size_pt=16, bold=False, color_rgb=None):
     run = paragraph.add_run(text)
     run.font.name = font_name
@@ -334,50 +336,47 @@ def apply_custom_info_borders(table, color_hex="D3D3D3", size="4"):
     tblBorders = parse_xml(xml_string)
     tblPr.append(tblBorders)
 
-def create_exact_layout_report(selected_month, selected_year):
+# ================================================================
+# 2. ฟังก์ชันสร้างรายงาน Word โดยดึงข้อมูลจาก DataFrame ของ Excel จริงๆ
+# ================================================================
+def create_exact_layout_report(df_data, selected_month, selected_year, reference_rate):
     doc = Document()
     
-    # กำหนดระยะขอบหน้ากระดาษมาตรฐาน 1 นิ้วรอบด้าน (พื้นที่พิมพ์กว้าง 6.5 นิ้วพอดี)
+    # ระยะขอบหน้ากระดาษ 1 นิ้วรอบด้าน
     for section in doc.sections:
         section.top_margin = Inches(1.0)
         section.bottom_margin = Inches(1.0)
         section.left_margin = Inches(1.0)
         section.right_margin = Inches(1.0)
 
-    # --- ส่วนหัวข้อบันทึกข้อความขวาบน MEMORANDUM ---
+    # หัวข้อ MEMORANDUM ขวาบน
     p_top_title = doc.add_paragraph()
     p_top_title.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p_top_title.paragraph_format.space_before = Pt(0)
-    p_top_title.paragraph_format.space_after = Pt(4)
     add_run_thai(p_top_title, " MEMORANDUM ", size_pt=15, bold=True)
     
-    # --- ปรับโครงสร้างตารางข้อมูลหัวข้อเป็น 1 คอลัมน์เต็ม เพื่อป้องกันเลย์เอาต์เอียงซ้าย ---
-    info_table = doc.add_table(rows=5, cols=1)
+    # ตารางหัวข้อ 2 คอลลัมน์ (ที่/No ล็อกซ้าย - วันที่ ล็อกขวา ในบรรทัดแรกสุด)
+    info_table = doc.add_table(rows=5, cols=2)
     info_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     info_table.autofit = False
-    info_table.columns[0].width = Inches(6.5) # แผ่เต็มความกว้างหน้ากระดาษพอดี
-    
+    info_table.columns[0].width = Inches(2.2)
+    info_table.columns[1].width = Inches(4.3)
     apply_custom_info_borders(info_table, color_hex="D3D3D3", size="4")
     
     today_str = datetime.datetime.now().strftime(f"%d {selected_month} {selected_year}")
     
-    # บรรทัดที่ 1: ใช้ระบบ Right Tab Stop ล็อกตำแหน่งขวา-ซ้าย ขจัดปัญหาเรื่องแท็บเคลื่อน
-    cell_first = info_table.cell(0, 0)
-    set_cell_margins(cell_first, top=30, bottom=30, left=10, right=10)
-    p_first = cell_first.paragraphs[0]
-    p_first.paragraph_format.space_before = Pt(0)
-    p_first.paragraph_format.space_after = Pt(0)
-    p_first.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # บรรทัดบนสุด: ที่ / No ชิดซ้าย และ วันที่ / Date ชิดขวาสุดของขอบกระดาษพอดี
+    cell_1_left = info_table.cell(0, 0)
+    set_cell_margins(cell_1_left, top=30, bottom=30, left=10, right=10)
+    p_1_left = cell_1_left.paragraphs[0]
+    p_1_left.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    add_run_thai(p_1_left, "ที่ / No:  -", size_pt=14.5, bold=True)
     
-    # ล็อกระยะแท็บหยุดตัวที่หนึ่งไว้ที่ตำแหน่งขวาขอบกระดาษพอดี (6.5 นิ้ว) และสั่งให้ข้อความชิดขวาจากจุดนั้น
-    tab_stops = p_first.paragraph_format.tab_stops
-    tab_stops.add_tab_stop(Inches(6.5), alignment=WD_TAB_ALIGNMENT.RIGHT)
-    
-    add_run_thai(p_first, "ที่ / No:  -", size_pt=14.5, bold=True)
-    # ใส่ \t เพื่อดีดวันที่ไปอยู่ที่ขอบขวาสุดของเอกสารอย่างแม่นยำ
-    add_run_thai(p_first, f"\tวันที่ / Date:  {today_str}", size_pt=14.5)
+    cell_1_right = info_table.cell(0, 1)
+    set_cell_margins(cell_1_right, top=30, bottom=30, left=10, right=10)
+    p_1_right = cell_1_right.paragraphs[0]
+    p_1_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT 
+    add_run_thai(p_1_right, f"วันที่ / Date:  {today_str}", size_pt=14.5)
 
-    # บรรทัดที่ 2-5: แสดงข้อมูลหัวข้ออื่น ๆ ตามปกติ
     headers_layout = [
         ("หน่วยงานผู้ส่ง / From:  ", "ส่วนบริหารกลยุทธ์และแผนการผลิต (กผ.)"),
         ("เรียน / To:  ", "ผจ.สทต. / ผจ.บท ผ่าน ผจ.กผ."),
@@ -385,33 +384,31 @@ def create_exact_layout_report(selected_month, selected_year):
         ("เรื่อง / Subject:  ", f"แจ้งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year}")
     ]
     
-    for idx, row_data in enumerate(headers_layout, start=1):
-        cell = info_table.cell(idx, 0)
-        set_cell_margins(cell, top=30, bottom=30, left=10, right=10)
-        p = cell.paragraphs[0]
-        p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after = Pt(0)
-        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    for idx, (label, value) in enumerate(headers_layout, start=1):
+        c_left = info_table.cell(idx, 0)
+        set_cell_margins(c_left, top=30, bottom=30, left=10, right=10)
+        p_l = c_left.paragraphs[0]
+        add_run_thai(p_l, label, size_pt=14.5, bold=True)
         
-        add_run_thai(p, row_data[0], size_pt=14.5, bold=True)
-        add_run_thai(p, row_data[1], size_pt=14.5)
+        c_right = info_table.cell(idx, 1)
+        set_cell_margins(c_right, top=30, bottom=30, left=10, right=10)
+        p_r = c_right.paragraphs[0]
+        add_run_thai(p_r, value, size_pt=14.5)
 
-    # ขีดเส้นใต้ดำทึบหนาแยกพาร์ทส่วนหัวออกจากเนื้อหา
+    # ขีดเส้นใต้ดำทึบหนา
     p_line = doc.add_paragraph()
     p_line.paragraph_format.space_before = Pt(2)
     p_line.paragraph_format.space_after = Pt(10)
     p_line_border = parse_xml(f'<w:pBdr {nsdecls("w")}><w:bottom w:val="single" w:sz="12" w:space="1" w:color="000000"/></w:pBdr>')
     p_line._p.get_or_add_pPr().append(p_line_border)
 
-    # --- ส่วนเนื้อความช่วงที่ 1 ---
+    # เนื้อความส่วนที่ 1
     p_body1 = doc.add_paragraph()
-    p_body1.paragraph_format.space_before = Pt(0)
-    p_body1.paragraph_format.space_after = Pt(6)
     p_body1.paragraph_format.first_line_indent = Inches(0.5)
     p_body1.paragraph_format.line_spacing = 1.15
     add_run_thai(p_body1, f"ส่วนบริหารกลยุทธ์และแผนการผลิต ฝ่ายบริหารเทคนิคและแผนการผลิต ขอนำส่งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year} รายละเอียดการคำนวณตามเอกสารแนบ", size_pt=15)
 
-    # --- ส่วนตารางข้อมูลสรุปปริมาณและค่าใช้จ่าย (ตารางสีพีชกะทัดรัด) ---
+    # สร้างตารางค่าไฟฟ้าสรุปสีพีช
     calc_table = doc.add_table(rows=3, cols=7)
     calc_table.style = 'Table Grid'
     calc_table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -421,7 +418,6 @@ def create_exact_layout_report(selected_month, selected_year):
     set_cell_background(calc_table.rows[0].cells[0], peach_hex)
     p_c0 = calc_table.rows[0].cells[0].paragraphs[0]
     p_c0.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_c0.paragraph_format.space_after = Pt(0)
     add_run_thai(p_c0, "พื้นที่ใช้ไฟฟ้า", size_pt=10.5, bold=True)
     
     headers_top = [("ไฟฟ้าที่รับจาก PEA", 1, 2), ("ไฟฟ้าที่รับจาก GSP", 3, 4), ("รวมไฟฟ้าที่รับทั้งหมด", 5, 6)]
@@ -430,7 +426,6 @@ def create_exact_layout_report(selected_month, selected_year):
         set_cell_background(cell, peach_hex)
         p = cell.paragraphs[0]
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_after = Pt(0)
         add_run_thai(p, text, size_pt=10.5, bold=True)
     
     sub_headers = ["ปริมาณไฟฟ้า", "ค่าใช้จ่าย", "ปริมาณไฟฟ้า", "ค่าใช้จ่าย", "ปริมาณไฟฟ้า", "ค่าใช้จ่าย"]
@@ -440,63 +435,58 @@ def create_exact_layout_report(selected_month, selected_year):
         c3 = calc_table.rows[2].cells[idx+1]
         set_cell_background(c2, peach_hex)
         set_cell_background(c3, peach_hex)
-        
         p2 = c2.paragraphs[0]
         p3 = c3.paragraphs[0]
         p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p2.paragraph_format.space_after = Pt(0)
-        p3.paragraph_format.space_after = Pt(0)
-        
         add_run_thai(p2, sub_headers[idx], size_pt=9, bold=True)
         add_run_thai(p3, sub_units[idx], size_pt=9, bold=True)
 
-    table_data = [
-        ["DPCU", "26,218.00", "121,418.83", "-", "-", "26,218.00", "121,418.83"],
-        ["New DPCU", "60,451.30", "279,957.51", "-", "-", "60,451.30", "279,957.51"],
-        ["OCS1", "132,224.00", "612,345.83", "-", "-", "132,224.00", "612,345.83"],
-        ["OCS2", "111,774.00", "517,639.33", "-", "-", "111,774.00", "517,639.33"],
-        ["OCS3", "421,808.00", "1,950,445.75", "-", "-", "421,808.00", "1,950,445.75"],
-        ["Total", "752,475.30", "3,481,807.25", "-", "-", "752,475.30", "3,481,807.25"]
-    ]
-    total_cost_str = table_data[-1][-1]
-
-    for row_data in table_data:
+    # วนลูปเพื่อกรอกข้อมูลที่ดึงมาจาก Excel เข้าตารางจริงๆ
+    total_cost_sum = 0.0
+    for _, row in df_data.iterrows():
         row_cells = calc_table.add_row().cells
-        is_total = (row_data[0] == "Total")
-        for idx, val in enumerate(row_data):
+        is_total = (row['พื้นที่ใช้ไฟฟ้า'] == "Total")
+        
+        if is_total:
+            total_cost_sum = row['รวม_ค่าใช้จ่าย']
+            
+        for idx, col_name in enumerate(['พื้นที่ใช้ไฟฟ้า', 'PEA_ปริมาณ', 'PEA_ค่าใช้จ่าย', 'GSP_ปริมาณ', 'GSP_ค่าใช้จ่าย', 'รวม_ปริมาณ', 'รวม_ค่าใช้จ่าย']):
             cell = row_cells[idx]
             if is_total:
                 set_cell_background(cell, peach_hex)
             set_cell_margins(cell, top=20, bottom=20, left=40, right=40)
             p = cell.paragraphs[0]
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after = Pt(0)
+            
+            # การแปลงฟอร์แมตตัวเลขให้แสดงลูกน้ำทศนิยม 2 ตำแหน่ง
+            val = row[col_name]
+            if isinstance(val, (int, float)):
+                val_str = "-" if val == 0 or pd.isna(val) else f"{val:,.2f}"
+            else:
+                val_str = str(val)
+                
             if idx == 0:
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                add_run_thai(p, val, size_pt=9.5, bold=is_total)
+                add_run_thai(p, val_str, size_pt=9.5, bold=is_total)
             else:
                 p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                add_run_thai(p, val, size_pt=9.5, bold=is_total)
+                add_run_thai(p, val_str, size_pt=9.5, bold=is_total)
 
-    # --- ส่วนแจกแจงสรุปยอดสุทธิ ---
+    # ย่อหน้าสรุปจำนวนเงินสุทธิ
     p_body2 = doc.add_paragraph()
     p_body2.paragraph_format.space_before = Pt(12)
-    p_body2.paragraph_format.space_after = Pt(2)
     p_body2.paragraph_format.line_spacing = 1.15
     add_run_thai(p_body2, f"\tอัตราค่าไฟฟ้าอ้างอิง ราคา PEA Rate ณ เดือน {selected_month} {selected_year} = ", size_pt=15)
-    add_run_thai(p_body2, "4.6311", size_pt=15, bold=True)
+    add_run_thai(p_body2, f"{reference_rate:.4f}", size_pt=15, bold=True)
     add_run_thai(p_body2, " บาท / kWh  รายละเอียดตามเอกสารแนบ\n", size_pt=15)
     add_run_thai(p_body2, f"\tรวมค่าไฟฟ้าที่เรียกเก็บจากระบบท่อส่งก๊าซฯ ทั้งสิ้น\t\t", size_pt=15)
-    add_run_thai(p_body2, f"{total_cost_str}", size_pt=15, bold=True)
+    add_run_thai(p_body2, f"{total_cost_sum:,.2f}", size_pt=15, bold=True)
     add_run_thai(p_body2, "   บาท", size_pt=15)
 
-    # --- ช่องลงชื่ออนุมัติ (ย้าย "จึงเรียนมาเพื่อโปรดทราบ" ชิดขวาเรียบร้อย และตัดรายการเอกสารแนบออกแล้ว) ---
+    # ส่วนลงชื่ออนุมัติ
     p_sign = doc.add_paragraph()
     p_sign.paragraph_format.space_before = Pt(30)
-    p_sign.paragraph_format.space_after = Pt(0)
     p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    
     add_run_thai(p_sign, "จึงเรียนมาเพื่อโปรดทราบ            \n\n\n", size_pt=15)
     add_run_thai(p_sign, "(นางสุรีย์พันธ์ คุณากูลสวัสดิ์)      \n", size_pt=15)
     add_run_thai(p_sign, "ผู้จัดการทั่วไป            ", size_pt=15)
@@ -506,27 +496,47 @@ def create_exact_layout_report(selected_month, selected_year):
     doc_io.seek(0)
     return doc_io
 
-# --- ส่วนควบคุมหน้าจอหลัก UI สำหรับแอป Streamlit ---
-st.markdown("---")
-st.subheader("📊 ระบบออกรายงานสรุปบันทึกข้อความ (Memo Report)")
+# ================================================================
+# 3. ส่วน UI ของ Streamlit และการรับไฟล์ Excel เข้าประมวลผล
+# ================================================================
+st.title("ระบบออกรายงานสรุปบันทึกข้อความ ปตท. อัตโนมัติ")
+st.subheader("📊 เชื่อมโยงข้อมูลจากไฟล์ Excel สู่รายงาน Word แท้จริง")
+
+# ช่องให้อัปโหลดไฟล์ Excel จริง
+uploaded_file = st.file_uploader("📥 อัปโหลดไฟล์ Excel ข้อมูลค่าไฟฟ้า", type=["xlsx", "xls"])
 
 col1, col2 = st.columns(2)
 with col1:
     months_list = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
-    selected_month = st.selectbox("เลือกประจำเดือน", months_list, index=3)
+    selected_month = st.selectbox("เลือกประจำเดือน", months_list, index=5) # ตัวเลือกเดือนมิถุนายน
 with col2:
     years_list = [str(y) for y in range(2565, 2575)]
-    selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4)
-    
-if st.button("📝 สร้างรายงาน Word"):
+    selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4) # พ.ศ. 2569
+
+# ช่องป้อนเลขอัตราอ้างอิงรายเดือน
+reference_rate = st.number_input("⚡ ป้อนอัตราค่าไฟฟ้าอ้างอิงประจำเดือน (บาท / kWh)", min_value=0.0, max_value=10.0, value=4.6311, format="%.4f")
+
+if uploaded_file is not None:
     try:
-        word_output = create_exact_layout_report(selected_month, selected_year)
-        st.success("สร้างรายงานเสร็จเรียบร้อย")
-        st.download_button(
-            label="📥 ดาวน์โหลดไฟล์ Memo (.docx)",
-            data=word_output,
-            file_name=f"Memo_สรุปค่าไฟฟ้า_{selected_month}_{selected_year}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
+        # อ่านไฟล์ Excel โดยใช้ Pandas (สมมติโครงสร้างชีทหลักที่อ่านได้ทั่วไป)
+        # หมายเหตุ: ควรปรับเปลี่ยนชื่อคอลัมน์ด้านล่างให้ตรงตามหัวตารางในไฟล์ Excel จริงของคุณ
+        df = pd.read_excel(uploaded_file)
+        
+        st.success("📂 โหลดข้อมูลไฟล์ Excel สำเร็จแล้ว! แสดงตัวอย่างข้อมูลด้านล่าง:")
+        st.dataframe(df.head(7))
+        
+        if st.button("📝 ดึงข้อมูลจาก Excel และสร้างรายงาน Word เดียวนี้"):
+            # เรียกฟังก์ชันเจนไฟล์ Word โดยป้อนข้อมูลจาก Excel และข้อมูลหน้าเว็บเข้าไปร่วมกัน
+            word_file = create_exact_layout_report(df, selected_month, selected_year, reference_rate)
+            
+            st.success("✅ ระบบประมวลผลดึงตัวเลขจาก Excel มากรอกลงรายงาน Word และจัดขอบ 'ที่ / No:' - 'วันที่' ถูกต้องสมบูรณ์แบบแล้วครับ")
+            st.download_button(
+                label="📥 ดาวน์โหลดไฟล์ Memo ของแท้ (.docx)",
+                data=word_file,
+                file_name=f"Memo_สรุปค่าไฟฟ้า_ของจริง_{selected_month}_{selected_year}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการประมวลผล: {e}")
+        st.error(f"❌ เกิดข้อผิดพลาดในการอ่านไฟล์หรือแมปข้อมูล: {e} (โปรดตรวจสอบให้แน่ใจว่าหัวคอลัมน์ใน Excel ตรงกับตัวแปรในโค้ด)")
+else:
+    st.info("💡 คำแนะนำ: โปรดอัปโหลดไฟล์ Excel ประจำเดือนเข้าสู่ระบบก่อน เพื่อให้ปุ่มสร้างรายงานดึงข้อมูลมาทำงานได้โดยไม่เป็นข้อมูลสมมติครับ")
