@@ -324,35 +324,35 @@ def apply_custom_info_borders(table, color_hex="D3D3D3", size="4"):
     tblPr = table._tbl.tblPr
     xml_string = (
         f'<w:tblBorders {nsdecls("w")}>'
-        f'  <w:top w:val="none"/>'
-        f'  <w:left w:val="none"/>'
-        f'  <w:bottom w:val="none"/>'
-        f'  <w:right w:val="none"/>'
-        f'  <w:insideH w:val="single" w:sz="{size}" w:space="0" w:color="{color_hex}"/>'
-        f'  <w:insideV w:val="none"/>'
+        f'<w:top w:val="none"/>'
+        f'<w:left w:val="none"/>'
+        f'<w:bottom w:val="none"/>'
+        f'<w:right w:val="none"/>'
+        f'<w:insideH w:val="single" w:sz="{size}" w:space="0" w:color="{color_hex}"/>'
+        f'<w:insideV w:val="none"/>'
         f'</w:tblBorders>'
     )
     tblPr.append(parse_xml(xml_string))
 
 # ================================================================
-# 2. ฟังก์ชันสร้าง Word จากข้อมูลที่จำกัดแถวถูกต้อง
+# 2. ฟังก์ชันสร้าง Word จากตารางข้อมูลที่ดึงมาตรงพิกัด
 # ================================================================
 def create_exact_layout_report(df_clean, selected_month, selected_year, reference_rate):
     doc = Document()
     
-    # กำหนด Margins เป็น 1 นิ้วรอบด้าน
+    # กำหนดขอบหน้ากระดาษ 1 นิ้วรอบด้านเพื่อให้อยู่ในหน้าเดียวพอดี
     for section in doc.sections:
         section.top_margin = Inches(1.0)
         section.bottom_margin = Inches(1.0)
         section.left_margin = Inches(1.0)
         section.right_margin = Inches(1.0)
 
-    # MEMORANDUM
+    # หัวข้อ MEMORANDUM ขวาบน
     p_top_title = doc.add_paragraph()
     p_top_title.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     add_run_thai(p_top_title, " MEMORANDUM ", size_pt=15, bold=True)
     
-    # ตารางหัวข้อเรื่อง
+    # ตารางส่วนหัวเรื่อง
     info_table = doc.add_table(rows=5, cols=2)
     info_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     info_table.autofit = False
@@ -362,9 +362,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     
     today_str = datetime.datetime.now().strftime(f"%d {selected_month} {selected_year}")
     
-    p_1_left = info_table.cell(0, 0).paragraphs[0]
-    add_run_thai(p_1_left, "ที่ / No:  -", size_pt=14.5, bold=True)
-    
+    add_run_thai(info_table.cell(0, 0).paragraphs[0], "ที่ / No:  -", size_pt=14.5, bold=True)
     p_1_right = info_table.cell(0, 1).paragraphs[0]
     p_1_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     add_run_thai(p_1_right, f"วันที่ / Date:  {today_str}", size_pt=14.5)
@@ -380,17 +378,16 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
         add_run_thai(info_table.cell(idx, 0).paragraphs[0], label, size_pt=14.5, bold=True)
         add_run_thai(info_table.cell(idx, 1).paragraphs[0], value, size_pt=14.5)
 
-    # เส้นคั่นหัวข้อ
     p_line = doc.add_paragraph()
     p_line_border = parse_xml(f'<w:pBdr {nsdecls("w")}><w:bottom w:val="single" w:sz="12" w:space="1" w:color="000000"/></w:pBdr>')
     p_line._p.get_or_add_pPr().append(p_line_border)
 
-    # เนื้อหาท่อนแรก
+    # ย่อหน้าเนื้อความนำ
     p_body1 = doc.add_paragraph()
     p_body1.paragraph_format.first_line_indent = Inches(0.5)
     add_run_thai(p_body1, f"ส่วนบริหารกลยุทธ์และแผนการผลิต ฝ่ายบริหารเทคนิคและแผนการผลิต ขอนำส่งสรุปค่าไฟฟ้าของสถานีชายฝั่งระยอง ประจำเดือน {selected_month} {selected_year} รายละเอียดการคำนวณตามเอกสารแนบ", size_pt=15)
 
-    # สร้างตารางข้อมูลสีพีช
+    # สร้างตารางข้อมูลสรุปสีพีช (3 แถวหัวตาราง)
     calc_table = doc.add_table(rows=3, cols=7)
     calc_table.style = 'Table Grid'
     calc_table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -421,7 +418,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
         c2.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         c3.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # เติมข้อมูล 6 แถวเน้น ๆ
+    # วนลูปเพื่อกรอกข้อมูลพื้นที่ใช้ไฟฟ้าจริงลงตาราง
     total_cost_sum = "0.00"
     for _, row in df_clean.iterrows():
         row_cells = calc_table.add_row().cells
@@ -436,6 +433,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
             p = cell.paragraphs[0]
             
             val = row.iloc[col_idx]
+            # จัดฟอร์แมตตัวเลข ถ้าเป็น 0 หรือว่าง ให้ใส่เครื่องหมาย แดช "-" 
             if isinstance(val, (int, float)):
                 val_str = "-" if val == 0 or pd.isna(val) else f"{val:,.2f}"
             else:
@@ -450,7 +448,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
                 if is_total and col_idx == 6:
                     total_cost_sum = val_str
 
-    # สรุปท้ายประกาศ
+    # สรุปราคารวมด้านล่างตาราง
     p_body2 = doc.add_paragraph()
     p_body2.paragraph_format.space_before = Pt(12)
     add_run_thai(p_body2, f"\tอัตราค่าไฟฟ้าอ้างอิง ราคา PEA Rate ณ เดือน {selected_month} {selected_year} = ", size_pt=15)
@@ -460,9 +458,9 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     add_run_thai(p_body2, f"{total_cost_sum}", size_pt=15, bold=True)
     add_run_thai(p_body2, "   บาท", size_pt=15)
 
-    # ส่วนลงนาม
+    # ลายเซ็นผู้อนุมัติ
     p_sign = doc.add_paragraph()
-    p_sign.paragraph_format.space_before = Pt(30)
+    p_sign.paragraph_format.space_before = Pt(35)
     p_sign.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     add_run_thai(p_sign, "จึงเรียนมาเพื่อโปรดทราบ            \n\n\n", size_pt=15)
     add_run_thai(p_sign, "(นางสุรีย์พันธ์ คุณากูลสวัสดิ์)      \n", size_pt=15)
@@ -474,73 +472,57 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
     return doc_io
 
 # ================================================================
-# 3. ส่วนการทำงานร่วมกับเอกสาร Excel ของ ปตท. ใน Streamlit
+# 3. ส่วนการทำงานของ Streamlit (ดึงเจาะจงเฉพาะชีตและพิกัดคอลัมน์ G-M)
 # ================================================================
 st.title("ระบบออกรายงานสรุปบันทึกข้อความ ปตท. อัตโนมัติ")
+st.subheader("🎯 ล็อกพิกัดดึงตารางสรุปชีต 'Update PEA Bill' คอลัมน์ G-M บรรทัด 48-56")
 
 uploaded_file = st.file_uploader("📥 อัปโหลดไฟล์ Excel ค่าไฟฟ้า", type=["xlsx", "xls"])
 
 col1, col2 = st.columns(2)
 with col1:
     months_list = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
-    selected_month = st.selectbox("เลือกประจำเดือน", months_list, index=5) 
+    selected_month = st.selectbox("เลือกประจำเดือน", months_list, index=5)
 with col2:
     years_list = [str(y) for y in range(2565, 2575)]
-    selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4) 
+    selected_year = st.selectbox("เลือกปี พ.ศ.", years_list, index=4)
 
 reference_rate = st.number_input("⚡ ป้อนอัตราค่าไฟฟ้าอ้างอิงประจำเดือน (บาท / kWh)", min_value=0.0, max_value=10.0, value=4.6311, format="%.4f")
 
 if uploaded_file is not None:
     try:
-        # อ่านชีตแรกของไฟล์ Excel แบบดิบ
-        df_all = pd.read_excel(uploaded_file, header=None)
+        # เจาะจงอ่านชีตชื่อ "Update PEA Bill" แบบไม่กำหนดหัวข้อตาราง (header=None) เพื่อดึงด้วย Index บรรทัด
+        # โดยดึงช่วงคอลัมน์ G ถึง M ซึ่งเทียบเท่ากับดึงดัชนีคอลัมน์ช่องที่ 6 ถึง 12 (usecols="G:M")
+        df_all = pd.read_excel(uploaded_file, sheet_name="Update PEA Bill", header=None, usecols="G:M")
         
-        # [🔥 จุดแก้ไขสำคัญ] ค้นหาพิกัดโดยเริ่มสแกนเจาะจงเฉพาะกลุ่มสรุปค่าไฟฟ้าตามพื้นที่ย่อยจริง ๆ เท่านั้น
-        start_row = None
-        for r_idx, row in df_all.iterrows():
-            row_str = [str(v).strip().replace(" ", "") for v in row.values]
-            # มองหาแถวหัวตารางข้อมูลย่อยที่มีคำสำคัญเหล่านี้อยู่ร่วมกัน
-            if any("DPCU" in s for s in row_str) and any("NewDPCU" in s or "NDPCU" in s for s in row_str):
-                # ตัังต้นแถวที่เจอกลุ่มคำนี้
-                start_row = r_idx
-                break
-                
-        if start_row is not None:
-            # ดึงช่วงข้อมูลยาวเผื่อลงมา 10 แถวเพื่อให้ครอบคลุมถึงแถว Total ของตารางนั้น
-            df_segment = df_all.iloc[start_row:start_row+10, :7].copy()
+        # ดึงช่วงแถวที่ 48-56 ใน Excel (ในระบบ Index ของ Python จะเลื่อนขึ้นมาลบ 1 คือแถวที่ 47 ถึง 55)
+        # แถวที่ 48 (Index 47) คือหัวตารางสีส้ม -> แถวที่ 49-56 (Index 48-55) คือเนื้อข้อมูลย่อยจนถึง Total
+        df_table = df_all.iloc[47:56].copy()
+        
+        # ตั้งบรรทัดแรก (Row 48 ของ Excel) ให้ขึ้นมาทำหน้าที่เป็นชื่อหัวคอลัมน์แทน
+        df_table.columns = df_table.iloc[0]
+        df_clean = df_table.iloc[1:].reset_index(drop=True)
+        
+        # ทำความสะอาดข้อมูล เปลี่ยนชื่อหัวแถวแรกให้ได้มาตรฐานความสวยงามของฟอร์มรายงาน
+        df_clean.columns = ['พื้นที่ใช้ไฟฟ้า', 'PEA_ปริมาณ', 'PEA_ค่าใช้จ่าย', 'GSP_ปริมาณ', 'GSP_ค่าใช้จ่าย', 'รวม_ปริมาณ', 'รวม_ค่าใช้จ่าย']
+        
+        # คลีนช่องที่คำนวณจากสูตรแล้วเป็นค่าว่าง (NaN) ให้กลายเป็น 0
+        df_clean = df_clean.fillna(0)
+        
+        st.success("✅ เชื่อมต่อและกรองตารางสีส้มพิกัด G48:M56 สดตรงจากชีตสำเร็จ!")
+        st.dataframe(df_clean) # พรีวิวข้อมูลจะสั้นเป๊ะมีแค่ 5 พื้นที่หลัก + 1 แถวรวมสุทธิด้านล่างทันที
+        
+        if st.button("📝 สร้างรายงานบันทึกข้อความ (จบในหน้าเดียว)"):
+            word_file = create_exact_layout_report(df_clean, selected_month, selected_year, reference_rate)
+            st.success("✅ ดึงข้อมูลสูตรจาก Excel และเซ็ตหน้ากระดาษจบใน 1 หน้าเรียบร้อยแล้วครับ")
+            st.download_button(
+                label="📥 ดาวน์โหลดไฟล์บันทึกข้อความ ปตท. (.docx)",
+                data=word_file,
+                file_name=f"Memo_สรุปค่าไฟฟ้า_ของจริง_{selected_month}_{selected_year}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
             
-            # เคลียร์ข้อมูลขยะและจัดให้อยู่ในโครงสร้างมาตรฐาน
-            df_final_rows = []
-            target_areas = ["DPCU", "New DPCU", "OCS1", "OCS2", "OCS3", "Total"]
-            
-            for _, row in df_segment.iterrows():
-                cell_name = str(row.iloc[0]).strip()
-                # ตรวจสอบคู่ชื่อให้ตรงกับตารางสีส้ม 5 พื้นที่หลัก + 1 แถวรวมยอด
-                for target in target_areas:
-                    if target.lower().replace(" ", "") in cell_name.lower().replace(" ", ""):
-                        # บังคับคลีนชื่อให้สวยงามตามหน้าฟอร์มรายงาน
-                        row.iloc[0] = target
-                        df_final_rows.append(row)
-                        break
-            
-            # แปลงเป็น DataFrame ที่สมบูรณ์และไม่มีค่า NaN แปลกปลอมหลงเหลือ
-            df_clean = pd.DataFrame(df_final_rows)
-            df_clean = df_clean.fillna(0)
-            
-            st.success("🎯 ระบบตรวจจับและกรองตารางสรุปค่าไฟฟ้า 6 แถวหลักเรียบร้อยแล้ว!")
-            st.dataframe(df_clean) # พรีวิวข้อมูลบนเว็บบอร์ดจะแสดงเพียง 6 แถวเนียน ๆ ไม่มีค้างหรือเออร์เรอร์อีกต่อไป
-            
-            if st.button("📝 สร้างรายงานบันทึกข้อความ (จบในหน้าเดียว)"):
-                word_file = create_exact_layout_report(df_clean, selected_month, selected_year, reference_rate)
-                st.success("✅ สร้างไฟล์เสร็จสิ้น! ทุกอย่างถูกจัดให้อยู่ภายใน 1 หน้ากระดาษเรียบร้อย")
-                st.download_button(
-                    label="📥 ดาวน์โหลดไฟล์บันทึกข้อความ (.docx)",
-                    data=word_file,
-                    file_name=f"Memo_สรุปค่าไฟฟ้า_{selected_month}_{selected_year}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-        else:
-            st.error("❌ หาตำแหน่งตารางสรุปค่าไฟฟ้าแยกตามพื้นที่ไม่พบ กรุณาตรวจสอบว่ามีคำว่า 'DPCU' และ 'New DPCU' ในตารางในระนาบแถวเดียวกันหรือไม่")
-            
+    except ValueError as ve:
+        st.error("❌ ไม่พบแผ่นงาน (Sheet) ที่ชื่อว่า 'Update PEA Bill' ในไฟล์ Excel นี้ กรุณาตรวจสอบการสะกดชื่อชีตในไฟล์จริงครับ")
     except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดทางเทคนิค: {e}")
+        st.error(f"❌ เกิดข้อผิดพลาดในการดึงข้อมูลตามพิกัด: {e}")
