@@ -601,7 +601,7 @@ if uploaded_file is not None:
             'GSP_ปริมาณ', 'GSP_ค่าใช้จ่าย', 'รวม_ปริมาณ', 'รวม_ค่าใช้จ่าย'
         ])
 
-        st.success("🎯 กรอกข้อมูลปริมาณไฟฟ้าและค่าใช้จ่ายจากไฟล์ Excel เรียบร้อย")
+        st.success("🎯 กรอกข้อมูลปริมาณไฟฟ้าและค่าใช้จ่ายจากไฟล์ Excel เรียบร้อยแล้ว")
         
         def style_formatter(val):
             if isinstance(val, (int, float)):
