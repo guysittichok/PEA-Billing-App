@@ -601,7 +601,7 @@ if uploaded_file is not None:
             'GSP_ปริมาณ', 'GSP_ค่าใช้จ่าย', 'รวม_ปริมาณ', 'รวม_ค่าใช้จ่าย'
         ])
 
-        st.success("🎯 แมปปิ้งข้อมูลปริมาณไฟฟ้าและค่าใช้จ่ายจากไฟล์ Excel เรียบร้อยแล้วครับ!")
+        st.success("🎯 กรอกข้อมูลปริมาณไฟฟ้าและค่าใช้จ่ายจากไฟล์ Excel เรียบร้อยแล้วครับ!")
         
         def style_formatter(val):
             if isinstance(val, (int, float)):
@@ -610,11 +610,11 @@ if uploaded_file is not None:
 
         st.dataframe(df_clean.style.format(style_formatter))
         
-        if st.button("📝 สร้างรายงาน Word (จบในหน้าเดียว)"):
+        if st.button("📝 สร้างรายงาน Word (หน้าเดียว)"):
             word_file = create_exact_layout_report(df_clean, selected_month, selected_year, reference_rate)
-            st.success("✅ บันทึกข้อความจัดทำเสร็จสมบูรณ์ ข้อมูลลงตัวในหน้าเดียวพอดี!")
+            st.success("✅ บันทึกข้อความจัดทำเสร็จสมบูรณ์")
             st.download_button(
-                label="📥 ดาวน์โหลดไฟล์บันทึกข้อความ ปตท. (.docx)",
+                label="📥 ดาวน์โหลดไฟล์(.docx)",
                 data=word_file,
                 file_name=f"Memo_สรุปค่าไฟฟ้า_{selected_month}_{selected_year}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
