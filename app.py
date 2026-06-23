@@ -496,7 +496,7 @@ def create_exact_layout_report(df_clean, selected_month, selected_year, referenc
 # ================================================================
 # 3. ส่วนแอปพลิเคชันหลัก (Streamlit UI)
 # ================================================================
-st.title("ระบบออกรายงานสรุปบันทึกข้อความ (Memo Report)")
+st.title("Automated Memo Summary System")
 
 uploaded_file = st.file_uploader("📥 อัปโหลดไฟล์ Excel ข้อมูลค่าไฟฟ้า", type=["xlsx", "xls"])
 
